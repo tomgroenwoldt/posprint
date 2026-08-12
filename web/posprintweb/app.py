@@ -101,14 +101,21 @@ app = FastAPI(
 def client_ip(request: Request) -> str:
     """The address the quotas are keyed on.
 
-    X-Forwarded-For is a request header like any other: without a trusted proxy
-    rewriting it, anyone can send a fresh one per request and mint themselves
-    unlimited quota. Hence the explicit opt-in.
+    A forwarding header is a request header like any other: without a trusted
+    proxy overwriting it, anyone can send a fresh one per request and mint
+    themselves unlimited quota. Hence the explicit opt-in.
+
+    Exactly one header is consulted, named by POSPRINTWEB_CLIENT_IP_HEADER, and
+    only its first value. Reading several headers and taking whichever is
+    present is the subtle version of the same bug: behind a proxy that sets
+    X-Forwarded-For but does not strip CF-Connecting-IP, a visitor supplies the
+    header nobody is overwriting and the rate limiter follows it.
+
+    Whatever proxy is in front must *overwrite* this header rather than append
+    to it, or the leftmost value is still attacker-supplied. See the README.
     """
     if cfg.trust_proxy:
-        fwd = request.headers.get("cf-connecting-ip") or request.headers.get(
-            "x-forwarded-for", ""
-        )
+        fwd = request.headers.get(cfg.client_ip_header, "")
         if fwd:
             return fwd.split(",")[0].strip()
     return request.client.host if request.client else "unknown"

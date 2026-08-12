@@ -132,27 +132,47 @@ The service binds to `127.0.0.1` on purpose. **Do not port-forward it.** It
 speaks plain HTTP, so a forwarded port publishes an unencrypted page and leaves
 your home IP address in every visitor's history.
 
-Use a tunnel instead. Cloudflare Tunnel is the good fit here: it terminates
-TLS, gives you a hostname, needs no inbound firewall rule, and lets you add
-rate limiting and a country block in front of the app.
+Put something in front that terminates TLS. Two setups that work:
+
+**Cloudflare Tunnel**, if the zone is on Cloudflare's nameservers. No inbound
+firewall rule, home IP never in DNS, and you get rate limiting and country
+blocking for free. Note this genuinely requires the zone to be *on* Cloudflare:
+the tunnel hostname CNAMEs to `<uuid>.cfargotunnel.com`, which only resolves
+inside Cloudflare's DNS, so a third-party provider cannot point at it. NS-
+delegating a single subdomain is an Enterprise-only feature.
 
 ```bash
-# inside the container
-curl -fsSL https://pkg.cloudflare.com/cloudflared-main.gpg \
-  | tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
-echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' \
-  > /etc/apt/sources.list.d/cloudflared.list
-apt-get update && apt-get install -y cloudflared
-
 cloudflared tunnel login
 cloudflared tunnel create posprint
 cloudflared tunnel route dns posprint print.example.com
 cloudflared tunnel run --url http://127.0.0.1:8000 posprint
 ```
 
-Once a tunnel is in front, set `POSPRINTWEB_TRUST_PROXY=true` and restart, so
-rate limiting keys on the real visitor address (`CF-Connecting-IP`) instead of
-seeing every request as coming from the tunnel itself.
+Then set `POSPRINTWEB_CLIENT_IP_HEADER=cf-connecting-ip`.
+
+**A small VPS running Caddy**, if DNS lives elsewhere. An `A` record points at
+the VPS, Caddy gets a Let's Encrypt cert, and a WireGuard or Tailscale link
+carries traffic back to the container. Your home IP stays out of DNS and no
+port is opened at home.
+
+```caddy
+print.example.com {
+    reverse_proxy <container-vpn-ip>:8000 {
+        header_up X-Forwarded-For {remote_host}
+        header_up -CF-Connecting-IP
+    }
+}
+```
+
+Both `header_up` lines are load-bearing. `reverse_proxy` *appends* to any
+inbound `X-Forwarded-For` by default, so without the first line a visitor sends
+their own and it lands leftmost — exactly the value the rate limiter reads. The
+second deletes a header Caddy has no reason to set, so a visitor cannot supply
+it and have the app trust it.
+
+Once something is in front, set `POSPRINTWEB_TRUST_PROXY=true` and restart, so
+rate limiting keys on the real visitor address rather than seeing every request
+as coming from the proxy.
 
 Getting that order wrong is the one mistake with teeth:
 
@@ -184,7 +204,8 @@ All settings are environment variables, read once at startup from
 | `POSPRINTWEB_QUIET_START` / `_END` | `22` / `8` | Local hours. Set both equal to disable |
 | `POSPRINTWEB_TZ` | `Europe/Berlin` | Timezone for quiet hours and daily rollover |
 | `POSPRINTWEB_BLOCKLIST` | *(empty)* | Path to a newline-separated wordlist |
-| `POSPRINTWEB_TRUST_PROXY` | `false` | Read `CF-Connecting-IP` / `X-Forwarded-For`. Read "Exposing it" first |
+| `POSPRINTWEB_TRUST_PROXY` | `false` | Trust the forwarding header for the client address. Read "Exposing it" first |
+| `POSPRINTWEB_CLIENT_IP_HEADER` | `x-forwarded-for` | The one header trusted when the above is on. `cf-connecting-ip` behind Cloudflare |
 | `POSPRINTWEB_ADMIN_KEYS` | *(empty)* | Comma-separated. Bypass all limits, unlock `/admin/log` |
 | `POSPRINTWEB_KILLSWITCH` | `/etc/posprintweb.disabled` | Printing stops while this file exists |
 | `POSPRINTWEB_ENABLED` | `true` | Permanent off switch |

@@ -78,10 +78,17 @@ class Config:
     blocklist_path: str = ""
     blocklist: tuple[str, ...] = ()
 
-    # X-Forwarded-For is attacker-controlled unless something trusted rewrites
-    # it. Only turn this on when a reverse proxy or tunnel is actually in front,
-    # otherwise every rate limit becomes bypassable with one header.
+    # The forwarding header is attacker-controlled unless something trusted
+    # overwrites it. Only turn this on when a reverse proxy or tunnel is
+    # actually in front, otherwise every rate limit becomes bypassable with one
+    # header.
     trust_proxy: bool = False
+
+    # Exactly one header is consulted, and only when trust_proxy is on. Set it
+    # to match the proxy actually in front: cf-connecting-ip behind Cloudflare,
+    # x-forwarded-for behind Caddy, nginx and friends. Naming a header the
+    # proxy does not overwrite is a silent bypass, not a loud misconfiguration.
+    client_ip_header: str = "x-forwarded-for"
 
     db_path: str = "/var/lib/posprintweb/prints.db"
 
@@ -131,6 +138,11 @@ class Config:
             blocklist_path=path,
             blocklist=blocklist,
             trust_proxy=_env_bool("POSPRINTWEB_TRUST_PROXY", False),
+            client_ip_header=os.environ.get(
+                "POSPRINTWEB_CLIENT_IP_HEADER", "x-forwarded-for"
+            )
+            .strip()
+            .lower(),
             db_path=os.environ.get(
                 "POSPRINTWEB_DB", "/var/lib/posprintweb/prints.db"
             ),

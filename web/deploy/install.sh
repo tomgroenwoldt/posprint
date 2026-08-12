@@ -100,9 +100,15 @@ POSPRINTWEB_QUIET_END=8
 POSPRINTWEB_BLOCKLIST=
 
 # ONLY set this to true once a reverse proxy or tunnel is actually in front.
-# With it on and nothing in front, anyone can forge X-Forwarded-For and mint
+# With it on and nothing in front, anyone can forge the header below and mint
 # themselves unlimited prints.
 POSPRINTWEB_TRUST_PROXY=false
+
+# The single header trusted for the client address. Must name a header the
+# proxy in front OVERWRITES, not one it merely appends to or passes through:
+#   Caddy / nginx / HAProxy -> x-forwarded-for
+#   Cloudflare              -> cf-connecting-ip
+POSPRINTWEB_CLIENT_IP_HEADER=x-forwarded-for
 
 # Bypasses cooldown, quotas and quiet hours. Send as X-Admin-Key. Also unlocks
 # GET /admin/log.

@@ -180,6 +180,27 @@ def test_overlong_name_is_rejected(client):
     assert send(client, name="n" * 40).status_code == 422
 
 
+def test_only_the_configured_header_is_trusted(client):
+    """Behind Caddy, nothing strips CF-Connecting-IP.
+
+    If the app read whichever forwarding header happened to be present, a
+    visitor could send the one the proxy does not overwrite and hand themselves
+    a fresh quota every request. Only POSPRINTWEB_CLIENT_IP_HEADER counts.
+    """
+    body = {"message": "hi", "name": ""}
+    first = client.post(
+        "/api/print", json=body,
+        headers={"X-Forwarded-For": "1.1.1.1", "CF-Connecting-IP": "8.8.8.8"},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/api/print", json=body,
+        headers={"X-Forwarded-For": "1.1.1.1", "CF-Connecting-IP": "9.9.9.9"},
+    )
+    assert second.status_code == 429
+
+
 # -- quotas ---------------------------------------------------------------
 
 
