@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Print to my receipt printer</title>
+<meta name="description" content="Send a message to a real thermal receipt printer.">
+<meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🧾</text></svg>">
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="title">Print to my receipt printer</h1>
+    <p id="blurb" class="blurb"></p>
+    <p id="status" class="status status--pending">checking the printer…</p>
+  </header>
+
+  <form id="form" autocomplete="off">
+    <label class="field">
+      <span class="field__label">Your message</span>
+      <textarea id="message" name="message" rows="6" maxlength="500"
+                placeholder="Say something worth 8cm of paper." required></textarea>
+      <span class="counter"><span id="count">0</span> / <span id="max">500</span></span>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Your name <span class="muted">(optional)</span></span>
+      <input id="name" name="name" type="text" maxlength="32" placeholder="anonymous">
+    </label>
+
+    <button id="submit" type="submit">Print it</button>
+    <p id="quota" class="quota"></p>
+    <p id="error" class="error" hidden></p>
+  </form>
+
+  <section class="preview" aria-label="Print preview">
+    <h2>What comes out</h2>
+    <div class="paper">
+      <pre id="paper"></pre>
+      <div class="paper__tear" aria-hidden="true"></div>
+    </div>
+  </section>
+
+  <footer>
+    <p>Messages are logged with a timestamp and IP address so I can deal with
+       abuse. Don't send anything you would not want on my wall.</p>
+    <p id="counter-line" class="muted"></p>
+  </footer>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

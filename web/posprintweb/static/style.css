@@ -1,0 +1,165 @@
+:root {
+  --ink: #1b1b1b;
+  --muted: #6b6b6b;
+  --bg: #f2f0ec;
+  --paper: #fffdf8;
+  --line: #d8d4cc;
+  --accent: #1f6feb;
+  --bad: #b3261e;
+  --good: #1f7a3d;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e6e1;
+    --muted: #9a958c;
+    --bg: #17171a;
+    --paper: #211f1c;
+    --line: #3a3730;
+    --accent: #6ea8fe;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 2rem 1rem 4rem;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+main {
+  max-width: 46rem;
+  margin: 0 auto;
+  display: grid;
+  gap: 2rem;
+}
+
+h1 { font-size: 1.75rem; margin: 0 0 .35rem; letter-spacing: -.02em; }
+h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
+     color: var(--muted); margin: 0 0 .6rem; }
+
+.blurb { margin: 0 0 .9rem; color: var(--muted); max-width: 34rem; }
+.muted { color: var(--muted); }
+
+/* -- status pill -------------------------------------------------------- */
+
+.status {
+  display: inline-flex; align-items: center; gap: .5rem;
+  margin: 0; padding: .3rem .7rem;
+  border: 1px solid var(--line); border-radius: 999px;
+  font-size: .85rem; background: var(--paper);
+}
+.status::before {
+  content: ""; width: .55rem; height: .55rem; border-radius: 50%;
+  background: var(--muted);
+}
+.status--online::before { background: var(--good); }
+.status--offline::before, .status--asleep::before { background: var(--bad); }
+.status--pending::before { background: var(--muted); animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+
+/* -- form --------------------------------------------------------------- */
+
+form { display: grid; gap: 1.1rem; }
+
+.field { display: grid; gap: .4rem; position: relative; }
+.field__label { font-size: .85rem; font-weight: 600; }
+
+textarea, input[type="text"] {
+  width: 100%;
+  padding: .7rem .8rem;
+  font: 15px/1.5 var(--mono);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: .5rem;
+  resize: vertical;
+}
+textarea:focus, input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.counter {
+  justify-self: end;
+  font: .78rem var(--mono);
+  color: var(--muted);
+}
+.counter.over { color: var(--bad); font-weight: 700; }
+
+button {
+  justify-self: start;
+  padding: .65rem 1.4rem;
+  font: 600 15px system-ui, sans-serif;
+  color: #fff; background: var(--accent);
+  border: 0; border-radius: .5rem; cursor: pointer;
+}
+button:hover:not(:disabled) { filter: brightness(1.08); }
+button:disabled { background: var(--muted); cursor: not-allowed; opacity: .7; }
+
+.quota { margin: 0; font-size: .85rem; color: var(--muted); }
+.error {
+  margin: 0; padding: .6rem .8rem;
+  border-left: 3px solid var(--bad);
+  background: color-mix(in srgb, var(--bad) 8%, transparent);
+  color: var(--bad); font-size: .9rem; border-radius: 0 .3rem .3rem 0;
+}
+.error--ok {
+  border-left-color: var(--good); color: var(--good);
+  background: color-mix(in srgb, var(--good) 8%, transparent);
+}
+
+/* -- receipt preview ---------------------------------------------------- */
+
+.paper {
+  position: relative;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: .3rem .3rem 0 0;
+  padding: 1.2rem 1rem 1.6rem;
+  box-shadow: 0 1px 3px rgb(0 0 0 / .08);
+}
+
+/* The scroll container is the <pre>, not .paper: .paper__tear sits below the
+   bottom edge, so scrolling here would produce a permanent scrollbar. */
+.paper pre {
+  margin: 0;
+  font: 12.5px/1.45 var(--mono);
+  white-space: pre;
+  color: var(--ink);
+  overflow-x: auto;
+}
+
+/* GS ! double-width. The printer doubles the cell, so the preview has to as
+   well or the centring in the preview won't match the paper. */
+.paper .dbl {
+  display: inline-block;
+  transform: scaleX(2);
+  transform-origin: left center;
+  font-weight: 700;
+}
+
+/* Torn edge along the bottom, the way the cutter leaves it. */
+.paper__tear {
+  position: absolute; left: 0; right: 0; bottom: -8px; height: 9px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  -webkit-mask-image: repeating-linear-gradient(
+    -45deg, #000 0 6px, transparent 6px 12px);
+  mask-image: repeating-linear-gradient(
+    -45deg, #000 0 6px, transparent 6px 12px);
+}
+
+footer {
+  font-size: .82rem;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}
+footer p { margin: .35rem 0; max-width: 38rem; }

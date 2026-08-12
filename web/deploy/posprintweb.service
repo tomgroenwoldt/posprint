@@ -1,0 +1,53 @@
+[Unit]
+Description=posprint-web - public front end for the receipt printer
+Documentation=file:///opt/posprint-web/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=posprintweb
+Group=posprintweb
+WorkingDirectory=/opt/posprint-web
+EnvironmentFile=/etc/posprintweb.env
+ExecStart=/opt/posprint-web/venv/bin/python -m posprintweb
+Restart=on-failure
+RestartSec=5s
+
+# Creates and owns /var/lib/posprintweb for the SQLite database.
+StateDirectory=posprintweb
+StateDirectoryMode=0750
+
+# Hardening.
+#
+# This process is the one exposed to the internet, so unlike posprint itself it
+# has no reason to touch any device: PrivateDevices is on here.
+#
+# The Protect*/Private* directives need a private mount namespace, which an
+# unprivileged LXC cannot create (start fails with 226/NAMESPACE). install.sh
+# detects that and drops in deploy/posprintweb-container.conf to disable just
+# those lines.
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
