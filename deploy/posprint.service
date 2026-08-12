@@ -1,0 +1,42 @@
+[Unit]
+Description=posprint - HTTP service for a USB ESC/POS receipt printer
+Documentation=file:///opt/posprint/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=posprint
+Group=lp
+WorkingDirectory=/opt/posprint
+EnvironmentFile=/etc/posprint.env
+ExecStart=/opt/posprint/venv/bin/python -m posprint
+Restart=on-failure
+RestartSec=5s
+
+# Hardening.
+#
+# Deliberately NOT set: PrivateDevices=yes. It replaces /dev with a minimal
+# tmpfs containing only the standard pseudo-devices, which hides /dev/usb/lp0
+# and breaks the entire point of this service. Same reason DevicePolicy is left
+# at the default: locking it down needs the usblp cgroup device class named
+# correctly and fails closed in confusing ways if it isn't.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

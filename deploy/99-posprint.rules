@@ -1,0 +1,15 @@
+# Install on the PROXMOX HOST as /etc/udev/rules.d/99-posprint.rules
+#
+# Two jobs:
+#   1. Make the usblp node world-writable. In an unprivileged LXC the container's
+#      root is host uid 100000, so the default root:lp 0660 node is unwritable
+#      from inside no matter what group you join. 0666 on a receipt printer on a
+#      home LAN is the pragmatic trade; use a privileged container if you'd
+#      rather keep 0660.
+#   2. Give it a stable name for humans. The service auto-discovers /dev/usb/lp*
+#      so it does not depend on this, but /dev/pos-printer is nicer to type.
+
+SUBSYSTEM=="usbmisc", KERNEL=="lp[0-9]*", MODE="0666", GROUP="lp", SYMLINK+="pos-printer"
+
+# Older kernels expose usblp under the legacy "usb" subsystem instead.
+SUBSYSTEM=="usb", KERNEL=="lp[0-9]*", MODE="0666", GROUP="lp", SYMLINK+="pos-printer"

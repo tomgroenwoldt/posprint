@@ -1,0 +1,22 @@
+[project]
+name = "posprint"
+version = "1.0.0"
+description = "HTTP service for a USB-attached ESC/POS receipt printer"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "pydantic>=2.7,<3.0",
+    "python-multipart>=0.0.9",
+    "pillow>=10.3",
+]
+
+[project.scripts]
+posprint = "posprint.app:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["posprint*"]
