@@ -1,0 +1,31 @@
+[project]
+name = "posprint-web"
+version = "1.0.0"
+description = "Public web front end for the posprint receipt-printer service"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "httpx>=0.26",
+    "pydantic>=2.6",
+    "tzdata>=2024.1; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+posprint-web = "posprintweb.app:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["posprintweb*"]
+
+[tool.setuptools.package-data]
+posprintweb = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

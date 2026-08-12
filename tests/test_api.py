@@ -1,0 +1,273 @@
+"""End-to-end tests against the HTTP surface, with a fake printer upstream."""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+from fastapi.testclient import TestClient
+
+# Config is read at import time, so the environment has to be set first.
+os.environ.update(
+    POSPRINTWEB_DB=":memory:",
+    POSPRINTWEB_UPSTREAM_KEY="test-key",
+    POSPRINTWEB_TRUST_PROXY="true",   # lets each test present its own IP
+    POSPRINTWEB_COOLDOWN_SECONDS="60",
+    POSPRINTWEB_PER_IP_DAILY="3",
+    POSPRINTWEB_GLOBAL_DAILY="100",
+    POSPRINTWEB_MAX_CHARS="200",
+    POSPRINTWEB_MAX_LINES="10",
+    POSPRINTWEB_QUIET_START="0",      # 0==0 disables quiet hours
+    POSPRINTWEB_QUIET_END="0",
+    POSPRINTWEB_KILLSWITCH="",
+    POSPRINTWEB_ADMIN_KEYS="admin-secret",
+    POSPRINTWEB_TZ="UTC",
+)
+
+from posprintweb import app as appmod  # noqa: E402
+from posprintweb.upstream import UpstreamError  # noqa: E402
+
+
+class FakeUpstream:
+    """Stands in for posprint. Records what would have been printed."""
+
+    def __init__(self):
+        self.jobs = []
+        self.fail = False
+        self.online = True
+
+    async def start(self):
+        pass
+
+    async def stop(self):
+        pass
+
+    async def health(self):
+        return {"ok": self.online, "device_present": self.online}
+
+    async def print_message(self, *, message, name, columns, when, note=""):
+        if self.fail:
+            raise UpstreamError("the printer is offline or out of paper")
+        self.jobs.append({"message": message, "name": name})
+        return {"job_id": f"job-{len(self.jobs)}", "state": "done"}
+
+
+@pytest.fixture()
+def fake():
+    f = FakeUpstream()
+    appmod.upstream = f
+    return f
+
+
+@pytest.fixture()
+def override():
+    """Temporarily change a setting.
+
+    Config is a frozen dataclass, so monkeypatch.setattr cannot touch it.
+    """
+    saved: dict[str, object] = {}
+
+    def _set(**kw):
+        for key, value in kw.items():
+            saved.setdefault(key, getattr(appmod.cfg, key))
+            object.__setattr__(appmod.cfg, key, value)
+
+    yield _set
+    for key, value in saved.items():
+        object.__setattr__(appmod.cfg, key, value)
+
+
+@pytest.fixture()
+def client(fake):
+    # The context manager is required: without it the lifespan never runs.
+    with TestClient(appmod.app) as c:
+        yield c
+    # Each test gets a clean quota ledger.
+    appmod.store._db.execute("DELETE FROM prints")
+    appmod.store._db.commit()
+
+
+def send(client, message="hello printer", name="tom", ip="1.2.3.4", key=None):
+    headers = {"X-Forwarded-For": ip}
+    if key:
+        headers["X-Admin-Key"] = key
+    return client.post("/api/print", json={"message": message, "name": name},
+                       headers=headers)
+
+
+# -- happy path -----------------------------------------------------------
+
+
+def test_index_is_served(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+
+
+def test_healthz(client):
+    assert client.get("/healthz").json() == {"ok": True}
+
+
+def test_status_reports_limits(client):
+    s = client.get("/api/status", headers={"X-Forwarded-For": "9.9.9.9"}).json()
+    assert s["limits"]["max_chars"] == 200
+    assert s["you"]["remaining_today"] == 3
+    assert s["online"] is True
+
+
+def test_print_succeeds(client, fake):
+    r = send(client)
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert fake.jobs == [{"message": "hello printer", "name": "tom"}]
+
+
+def test_print_records_remaining_quota(client):
+    assert send(client).json()["remaining_today"] == 2
+
+
+# -- the public surface stays narrow --------------------------------------
+
+
+def test_control_bytes_never_reach_the_printer(client, fake):
+    """A visitor must not be able to smuggle ESC/POS commands through."""
+    send(client, message="hi\x1b\x70\x00\x01 there")
+    assert "\x1b" not in fake.jobs[0]["message"]
+    assert "\x00" not in fake.jobs[0]["message"]
+
+
+def test_extra_fields_are_ignored(client, fake):
+    """No block passthrough: raw/drawer are not reachable from the web form."""
+    r = client.post(
+        "/api/print",
+        json={"message": "hi", "name": "x", "blocks": [{"type": "drawer"}]},
+        headers={"X-Forwarded-For": "1.2.3.4"},
+    )
+    assert r.status_code == 200
+    assert len(fake.jobs) == 1
+
+
+def test_admin_log_is_hidden_without_a_key(client):
+    assert client.get("/admin/log").status_code == 404
+
+
+def test_admin_log_works_with_a_key(client):
+    send(client)
+    r = client.get("/admin/log", headers={"X-Admin-Key": "admin-secret"})
+    assert r.status_code == 200
+    assert r.json()["prints"][0]["message"] == "hello printer"
+
+
+# -- validation -----------------------------------------------------------
+
+
+def test_empty_message_is_rejected(client):
+    assert send(client, message="   ").status_code == 422
+
+
+def test_overlong_message_is_rejected(client):
+    r = send(client, message="x " * 300)
+    assert r.status_code == 422
+    assert "Too long" in r.json()["detail"]
+
+
+def test_absurd_payload_is_rejected_by_the_schema(client):
+    r = send(client, message="x" * 6000)
+    assert r.status_code == 422
+
+
+def test_overlong_name_is_rejected(client):
+    assert send(client, name="n" * 40).status_code == 422
+
+
+# -- quotas ---------------------------------------------------------------
+
+
+def test_cooldown_returns_429_with_retry_after(client):
+    send(client)
+    r = send(client)
+    assert r.status_code == 429
+    assert int(r.headers["Retry-After"]) > 0
+
+
+def test_quota_is_per_ip(client):
+    assert send(client, ip="1.1.1.1").status_code == 200
+    assert send(client, ip="2.2.2.2").status_code == 200
+
+
+def test_spoofed_forwarded_for_is_ignored_without_trust_proxy(client, override):
+    """The setting exists because XFF is attacker-controlled by default."""
+    override(trust_proxy=False)
+    send(client, ip="1.1.1.1")
+    r = send(client, ip="2.2.2.2")          # a fresh header, but the same peer
+    assert r.status_code == 429
+
+
+# -- failure handling -----------------------------------------------------
+
+
+def test_printer_failure_returns_502(client, fake):
+    fake.fail = True
+    r = send(client)
+    assert r.status_code == 502
+    assert "offline" in r.json()["detail"]
+
+
+def test_printer_failure_gives_the_quota_back(client, fake):
+    fake.fail = True
+    send(client, ip="7.7.7.7")
+    fake.fail = False
+    # Not 429: the failed attempt must not have consumed the cooldown.
+    assert send(client, ip="7.7.7.7").status_code == 200
+
+
+def test_offline_printer_shows_in_status(client, fake):
+    fake.online = False
+    assert client.get("/api/status").json()["online"] is False
+
+
+# -- gates ----------------------------------------------------------------
+
+
+def test_killswitch_blocks_printing(client, fake, tmp_path, override):
+    flag = tmp_path / "disabled"
+    flag.write_text("")
+    override(killswitch_path=str(flag))
+    r = send(client)
+    assert r.status_code == 503
+    assert fake.jobs == []
+
+
+def test_quiet_hours_block_printing(client, override):
+    override(quiet_start_hour=0, quiet_end_hour=24)
+    assert send(client).status_code == 503
+
+
+def test_admin_key_bypasses_the_cooldown(client):
+    send(client, key="admin-secret")
+    assert send(client, key="admin-secret").status_code == 200
+
+
+def test_admin_key_bypasses_quiet_hours(client, override):
+    override(quiet_start_hour=0, quiet_end_hour=24)
+    assert send(client, key="admin-secret").status_code == 200
+
+
+def test_wrong_admin_key_does_not_bypass(client):
+    send(client)
+    assert send(client, key="not-the-key").status_code == 429
+
+
+# -- quiet-hours arithmetic ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "hour,expected",
+    [(23, True), (2, True), (7, True), (8, False), (12, False), (21, False), (22, True)],
+)
+def test_quiet_window_wraps_midnight(override, hour, expected):
+    from datetime import datetime
+
+    override(quiet_start_hour=22, quiet_end_hour=8)
+    when = datetime(2026, 8, 12, hour, 30)
+    assert appmod.in_quiet_hours(when) is expected

@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Runtime state and secrets - never commit these.
+*.db
+*.sqlite
+posprintweb.env
+blocklist.txt
+
+# Local dev artefacts
+dev-disabled
+.claude/
