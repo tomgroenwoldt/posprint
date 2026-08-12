@@ -59,11 +59,9 @@ pct create 110 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
 
 ### 2. Wire up the USB passthrough (on the Proxmox host)
 
-Copy this repo to the host, then:
-
 ```bash
-chmod +x deploy/host-setup.sh
-./deploy/host-setup.sh 110
+git clone https://github.com/tomgroenwoldt/posprint.git /root/posprint
+/root/posprint/deploy/host-setup.sh 110
 ```
 
 This loads `usblp` and pins it for reboot, installs the udev rule, adds the two
@@ -95,19 +93,24 @@ pct exec 110 -- ls -l /dev/usb/
 
 ### 3. Install the service (inside the container)
 
-Get the code in — from the Proxmox host:
+From the Proxmox host:
 
 ```bash
-tar czf /tmp/posprint.tgz -C /path/to posprint
-pct push 110 /tmp/posprint.tgz /root/posprint.tgz
-pct exec 110 -- tar xzf /root/posprint.tgz -C /root
-pct exec 110 -- bash /root/posprint/deploy/install.sh
+pct exec 110 -- bash -c "apt-get update -qq && apt-get install -y -qq git && \
+  git clone https://github.com/tomgroenwoldt/posprint.git /root/posprint && \
+  bash /root/posprint/deploy/install.sh"
 ```
 
 The installer creates `/opt/posprint` with a virtualenv, a `posprint` system
 user, a generated API key in `/etc/posprint.env`, and a systemd unit. It prints
-the URL and key when it finishes. Re-running it upgrades the code in place and
-keeps your config.
+the URL and key when it finishes.
+
+To upgrade later, pull and re-run — it replaces the code and keeps your config:
+
+```bash
+pct exec 110 -- bash -c "git -C /root/posprint pull && \
+  bash /root/posprint/deploy/install.sh"
+```
 
 ### 4. Confirm
 
