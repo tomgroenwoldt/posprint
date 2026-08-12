@@ -7,6 +7,7 @@ startup.
 
 from __future__ import annotations
 
+import codecs
 import os
 from dataclasses import dataclass, field
 
@@ -26,6 +27,21 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw is None or raw.strip() == "":
         return default
     return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_codepage(name: str, default: str) -> str:
+    """Resolve a code page name, failing at startup rather than mid-request.
+
+    An unknown codec would otherwise raise LookupError inside the first request
+    that contained a non-ASCII character, which is a confusing 500 for whoever
+    happens to be typing at the time.
+    """
+    raw = os.environ.get(name, default).strip().lower() or default
+    try:
+        codecs.lookup(raw)
+    except LookupError as exc:
+        raise SystemExit(f"{name}={raw!r} is not a known code page") from exc
+    return raw
 
 
 def _env_list(name: str) -> list[str]:
@@ -49,6 +65,12 @@ class Config:
     # Columns of the target paper. Only used to draw the preview and to reject
     # obviously oversized input; the real formatting happens upstream.
     columns: int = 48
+
+    # Must match posprint's POSPRINT_CODEPAGE. The printer has no glyphs
+    # outside it, so this is what decides which characters are refused rather
+    # than printed as '?'. Set them together or the page will promise something
+    # the paper cannot deliver.
+    codepage: str = "cp858"
 
     # -- abuse controls ---------------------------------------------------
     # A public endpoint that consumes a physical, finite resource. All three
@@ -119,6 +141,7 @@ class Config:
             site_title=os.environ.get("POSPRINTWEB_TITLE", cls.site_title),
             site_blurb=os.environ.get("POSPRINTWEB_BLURB", cls.site_blurb),
             columns=_env_int("POSPRINTWEB_COLUMNS", 48),
+            codepage=_env_codepage("POSPRINTWEB_CODEPAGE", "cp858"),
             cooldown_seconds=_env_int("POSPRINTWEB_COOLDOWN_SECONDS", 60),
             per_ip_daily=_env_int("POSPRINTWEB_PER_IP_DAILY", 5),
             global_daily=_env_int("POSPRINTWEB_GLOBAL_DAILY", 200),

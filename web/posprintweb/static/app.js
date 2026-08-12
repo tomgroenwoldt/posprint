@@ -16,6 +16,55 @@ let cooldownTimer = null;
 // The 60s status poll must not re-enable the button underneath a running
 // cooldown, so it checks this before touching `disabled`.
 let cooldownUntil = 0;
+// Same for a message the printer has no glyphs for: the poll must leave the
+// button alone until the text is fixed.
+let unprintable = [];
+// Offline, switched off, or asleep. Three independent reasons to keep the
+// button down; inferring them from `disabled` itself means whichever check
+// runs last wins, so they are tracked separately and combined in one place.
+let printerBlocked = false;
+
+// Filled from /api/status. Until it arrives the preview shows text verbatim,
+// which is the pre-existing behaviour and no worse than before.
+let charset = null;
+
+/* -- what the printer can actually render -------------------------------- */
+
+// Mirrors posprint's encode_text and the server's filters.unprintable: the
+// character itself, then an explicit replacement, then accent folding. The
+// tables come from the server so this cannot drift from the real code page.
+function asPrinted(ch) {
+  if (!charset) return ch;
+  if (charset.printable.has(ch)) return ch;
+
+  const replacement = charset.replacements[ch];
+  if (replacement && [...replacement].every((c) => charset.printable.has(c))) {
+    return replacement;
+  }
+
+  const folded = ch.normalize("NFKD").replace(/\p{M}/gu, "");
+  if (folded && [...folded].every((c) => charset.printable.has(c))) return folded;
+
+  return null;                       // reaches the paper as '?', or not at all
+}
+
+// Returns the text as it would come off the roll, and the distinct characters
+// that cannot make it there.
+function toPaper(text) {
+  let out = "";
+  const bad = [];
+  for (const ch of text) {
+    if (ch === "\n" || ch === "\t") { out += ch; continue; }
+    const printed = asPrinted(ch);
+    if (printed === null) {
+      out += "?";
+      if (!bad.includes(ch)) bad.push(ch);
+    } else {
+      out += printed;
+    }
+  }
+  return { text: out, bad };
+}
 
 /* -- receipt preview ----------------------------------------------------- */
 
@@ -62,8 +111,18 @@ function stamp() {
 
 function renderPreview() {
   const cols = limits.columns;
-  const body = el.message.value.trim() || "…";
-  const who = el.name.value.trim() || "someone on the internet";
+  const typed = el.message.value.trim();
+  const from = el.name.value.trim();
+
+  // Preview what the printer will produce, not what the browser can display.
+  // A browser has a font for every script; the printer has one code page, and
+  // showing the raw text here would promise something the paper cannot keep.
+  const message = toPaper(typed);
+  const sender = toPaper(from);
+  unprintable = [...new Set([...message.bad, ...sender.bad])];
+
+  const body = message.text || "…";
+  const who = sender.text || "someone on the internet";
 
   const parts = [
     pad("INCOMING", cols, 2) + `<span class="dbl">INCOMING</span>`,
@@ -75,6 +134,24 @@ function renderPreview() {
     "",
   ];
   el.paper.innerHTML = parts.join("\n");
+  showCharsetWarning();
+}
+
+// The server refuses these outright, so say so before the send rather than
+// spending the visitor's cooldown on a rejection.
+function showCharsetWarning() {
+  if (unprintable.length) {
+    const shown = unprintable.slice(0, 6).join(" ");
+    const more = unprintable.length > 6 ? ` (and ${unprintable.length - 6} more)` : "";
+    showError(
+      `The printer has no glyph for: ${shown}${more}. It only prints Latin ` +
+      `letters, digits and punctuation.`
+    );
+    el.error.dataset.reason = "charset";
+  } else if (el.error.dataset.reason === "charset") {
+    clearError();
+  }
+  syncSubmit();
 }
 
 function updateCount() {
@@ -94,9 +171,22 @@ function showError(msg, ok = false) {
   el.error.hidden = false;
   el.error.textContent = msg;
   el.error.classList.toggle("error--ok", ok);
+  // Tagged so the live charset warning knows which messages are its own to
+  // withdraw, and does not wipe a print result the visitor is still reading.
+  delete el.error.dataset.reason;
 }
 
-function clearError() { el.error.hidden = true; }
+function clearError() {
+  el.error.hidden = true;
+  delete el.error.dataset.reason;
+}
+
+function syncSubmit() {
+  // A cooldown owns the button's label as well as its state, so it is left to
+  // startCooldown's ticker rather than being fought over here.
+  if (cooldownUntil > Date.now()) return;
+  el.submit.disabled = printerBlocked || unprintable.length > 0;
+}
 
 function startCooldown(seconds) {
   clearInterval(cooldownTimer);
@@ -106,8 +196,8 @@ function startCooldown(seconds) {
     if (left <= 0) {
       clearInterval(cooldownTimer);
       cooldownUntil = 0;
-      el.submit.disabled = false;
       el.submit.textContent = "Print it";
+      syncSubmit();
       return;
     }
     el.submit.disabled = true;
@@ -124,6 +214,12 @@ async function refreshStatus() {
     const s = await r.json();
 
     limits = s.limits;
+    if (s.charset) {
+      charset = {
+        printable: new Set(s.charset.printable),
+        replacements: s.charset.replacements,
+      };
+    }
     el.title.textContent = s.title;
     document.title = s.title;
     el.blurb.textContent = s.blurb;
@@ -131,21 +227,20 @@ async function refreshStatus() {
     el.name.maxLength = limits.max_name_chars;
     el.max.textContent = limits.max_chars;
 
+    printerBlocked = true;
     if (s.disabled) {
       setStatus("offline", "Printing is switched off right now.");
-      el.submit.disabled = true;
     } else if (s.quiet) {
       setStatus("asleep",
         `Asleep until ${String(s.quiet_hours.end).padStart(2, "0")}:00 — ` +
         `it is ${s.local_time} there.`);
-      el.submit.disabled = true;
     } else if (!s.online) {
       setStatus("offline", "The printer is offline or out of paper.");
-      el.submit.disabled = true;
     } else {
       setStatus("online", "Printer is online.");
-      if (cooldownUntil <= Date.now()) el.submit.disabled = false;
+      printerBlocked = false;
     }
+    syncSubmit();
 
     el.quota.textContent = s.you.remaining_today > 0
       ? `${s.you.remaining_today} of ${limits.per_ip_daily} prints left today.`
@@ -156,6 +251,8 @@ async function refreshStatus() {
     renderPreview();
   } catch {
     setStatus("offline", "Can't reach the site's backend.");
+    printerBlocked = true;
+    syncSubmit();
   }
 }
 
@@ -190,12 +287,12 @@ el.form.addEventListener("submit", async (ev) => {
       showError(body.detail || `Something went wrong (${r.status}).`);
       const retry = parseInt(r.headers.get("Retry-After") || "0", 10);
       if (retry > 0 && retry < 3600) startCooldown(retry);
-      else { el.submit.disabled = false; el.submit.textContent = "Print it"; }
+      else { el.submit.textContent = "Print it"; syncSubmit(); }
     }
   } catch {
     showError("Network error. Is the site still up?");
-    el.submit.disabled = false;
     el.submit.textContent = "Print it";
+    syncSubmit();
   }
 });
 

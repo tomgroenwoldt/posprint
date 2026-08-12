@@ -29,7 +29,7 @@ except ImportError:  # pragma: no cover - Python < 3.9
     ZoneInfo = None  # type: ignore[assignment]
 
 from .config import Config
-from .filters import Rejected, check_message, check_name
+from .filters import FALLBACK, Rejected, check_message, check_name, printable_charset
 from .models import PrintMessage
 from .store import QuotaExceeded, Store
 from .upstream import Upstream, UpstreamError
@@ -52,6 +52,10 @@ def _tz():
 
 
 TZ = _tz()
+
+# Computed once: it is a couple of hundred characters and the same for every
+# request. The page needs it to render a preview that matches the paper.
+CHARSET = printable_charset(cfg.codepage)
 store = Store(cfg.db_path, TZ) if TZ else Store(cfg.db_path, datetime.now().astimezone().tzinfo)
 upstream = Upstream(cfg.upstream_url, cfg.upstream_key, cfg.upstream_timeout)
 
@@ -181,6 +185,10 @@ async def status(request: Request) -> dict:
             "cooldown_seconds": cfg.cooldown_seconds,
             "per_ip_daily": cfg.per_ip_daily,
         },
+        # What the printer can physically render. Sent rather than hardcoded in
+        # the page so the preview cannot drift from what actually prints when
+        # the code page changes.
+        "charset": {"printable": CHARSET, "replacements": FALLBACK},
         "you": {
             "used_today": counts["used_today"],
             "remaining_today": max(0, cfg.per_ip_daily - counts["used_today"]),
@@ -214,9 +222,13 @@ async def print_message(
             max_chars=cfg.max_chars,
             max_lines=cfg.max_lines,
             blocklist=cfg.blocklist,
+            codepage=cfg.codepage,
         )
         name = check_name(
-            req.name, max_chars=cfg.max_name_chars, blocklist=cfg.blocklist
+            req.name,
+            max_chars=cfg.max_name_chars,
+            blocklist=cfg.blocklist,
+            codepage=cfg.codepage,
         )
     except Rejected as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

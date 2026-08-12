@@ -84,6 +84,11 @@ POSPRINTWEB_TITLE=Print to my receipt printer
 POSPRINTWEB_BLURB=This prints on a real thermal printer in my flat.
 POSPRINTWEB_TZ=Europe/Berlin
 
+# MUST match POSPRINT_CODEPAGE in posprint's /etc/posprint.env. The printer has
+# no glyphs outside it, so this decides which characters are refused up front
+# rather than printed as a strip of question marks.
+POSPRINTWEB_CODEPAGE=cp858
+
 # --- abuse controls --------------------------------------------------------
 # All three matter. See the README's threat model before loosening any of them.
 POSPRINTWEB_COOLDOWN_SECONDS=60

@@ -180,6 +180,58 @@ def test_overlong_name_is_rejected(client):
     assert send(client, name="n" * 40).status_code == 422
 
 
+def test_korean_is_refused_rather_than_printed_as_question_marks(client, fake):
+    r = send(client, message="안녕하세요")
+    assert r.status_code == 422
+    assert "no glyph" in r.json()["detail"]
+    assert fake.jobs == []
+
+
+def test_emoji_is_refused(client):
+    assert send(client, message="thanks 🙏").status_code == 422
+
+
+def test_unprintable_name_is_refused(client):
+    assert send(client, name="Ольга").status_code == 422
+
+
+def test_accents_are_allowed(client, fake):
+    """The printer degrades these rather than failing, so they must get through.
+
+    Refusing them would be worse than the bug being fixed: 'Grönwoldt' prints
+    perfectly well in cp858, and even where it does not it arrives readable.
+    """
+    assert send(client, message="Grönwoldt café naïve").status_code == 200
+    assert fake.jobs[0]["message"] == "Grönwoldt café naïve"
+
+
+def test_smart_quotes_and_dashes_are_allowed(client):
+    """Phone keyboards produce these constantly; posprint maps them to ASCII."""
+    assert send(client, message="“hi” — it’s fine…").status_code == 200
+
+
+def test_fallbacks_match_the_printer():
+    """The web service copies posprint's replacement table; keep them equal.
+
+    They cannot share the module: the two services deploy to separate
+    containers and this one has no posprint checkout. Nothing but this test
+    stops the copies drifting, at which point the page would promise a
+    character the paper renders as '?'.
+    """
+    from posprint.escpos import _FALLBACK
+
+    from posprintweb.filters import FALLBACK
+
+    assert FALLBACK == _FALLBACK
+
+
+def test_charset_is_published_for_the_preview(client):
+    charset = client.get("/api/status").json()["charset"]
+    assert "é" in charset["printable"]
+    assert "안" not in charset["printable"]
+    assert charset["replacements"]["—"] == "-"
+
+
 def test_only_the_configured_header_is_trusted(client):
     """Behind Caddy, nothing strips CF-Connecting-IP.
 

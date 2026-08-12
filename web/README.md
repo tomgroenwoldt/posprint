@@ -43,6 +43,7 @@ removing any one of them leaves a hole worth caring about.
 | ESC/POS command injection through the message body | All C0/C1 control bytes are stripped before the text goes upstream. `0x1B` is the ESC byte; letting one through would hand a visitor the command set. See `test_escape_byte_is_stripped`. |
 | Blocklist evasion with invisible characters | Zero-width and bidi-override characters are stripped; matching folds accents and strips separators, so `b-à-d` still matches `bad`. |
 | Character floods (`AAAA…` ×5000) | Rejected before the length check can be gamed; runs of 200 blank lines collapse too. |
+| A whole print spent on `??????` | The printer has one 8-bit code page. Text it cannot render — Korean, Chinese, Cyrillic, emoji — is refused with the offending characters named, and the live preview shows what the paper will actually say rather than what the browser can display. Accents and smart quotes are *not* refused: posprint degrades those to `e` and `"`, which still reads. |
 | Printer chattering at 03:00 | Quiet hours, local to your timezone, wrapping midnight correctly. |
 | Rate limits bypassed by forging `X-Forwarded-For` | Ignored unless `POSPRINTWEB_TRUST_PROXY=true`, which you set **only** once a trusted proxy is actually in front. |
 | It all goes wrong at once | `touch /etc/posprintweb.disabled` stops printing immediately, no restart. |
@@ -196,6 +197,7 @@ All settings are environment variables, read once at startup from
 | `POSPRINTWEB_HOST` / `_PORT` | `0.0.0.0` / `8000` | `install.sh` writes `127.0.0.1`; keep it there and tunnel in |
 | `POSPRINTWEB_TITLE` / `_BLURB` | see `config.py` | Page heading and intro text |
 | `POSPRINTWEB_COLUMNS` | `48` | Paper width in characters. 32 for 58mm paper |
+| `POSPRINTWEB_CODEPAGE` | `cp858` | **Must match posprint's `POSPRINT_CODEPAGE`.** Decides which characters are refused instead of printed as `?` |
 | `POSPRINTWEB_COOLDOWN_SECONDS` | `60` | Minimum gap between prints from one IP |
 | `POSPRINTWEB_PER_IP_DAILY` | `5` | Per-IP daily cap. `0` disables |
 | `POSPRINTWEB_GLOBAL_DAILY` | `200` | Paper budget for everyone combined. `0` disables |
