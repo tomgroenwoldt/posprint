@@ -21,6 +21,12 @@ RestartSec=5s
 # and breaks the entire point of this service. Same reason DevicePolicy is left
 # at the default: locking it down needs the usblp cgroup device class named
 # correctly and fails closed in confusing ways if it isn't.
+#
+# The Protect*/Private* directives below need a private mount namespace, which
+# an unprivileged LXC cannot create (start fails with 226/NAMESPACE). install.sh
+# detects that and drops in deploy/posprint-container.conf to disable just those
+# lines. This file stays fully hardened for bare metal, VMs and privileged
+# containers.
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

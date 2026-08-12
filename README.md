@@ -64,9 +64,12 @@ pct create 110 local:vztmpl/debian-12-standard_<version>_amd64.tar.zst \
   --hostname posprint \
   --cores 1 --memory 512 --rootfs local-lvm:4 \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
-  --unprivileged 1 --features nesting=1 \
+  --unprivileged 1 \
   --start 1
 ```
+
+`nesting=1` is deliberately not enabled — see
+[the service fails with 226/NAMESPACE](#the-service-fails-to-start-with-226namespace).
 
 ### 2. Wire up the USB passthrough (on the Proxmox host)
 
@@ -307,6 +310,31 @@ unaffected.
 
 If the node exists on the host but not in the container, the container was
 started before the node existed. `pct stop 110 && pct start 110`.
+
+### The service fails to start with 226/NAMESPACE
+
+```
+Failed to set up mount namespacing: /run/systemd/unit-root/proc: Permission denied
+Failed at step NAMESPACE spawning /opt/posprint/venv/bin/python: Permission denied
+status=226/NAMESPACE
+```
+
+The unit's `ProtectSystem`/`PrivateTmp`/`ProtectKernelTunables` hardening needs a
+private mount namespace, which an unprivileged LXC cannot create. `install.sh`
+detects containers and drops in `deploy/posprint-container.conf` to disable
+exactly those directives; if you see this, the drop-in is missing:
+
+```bash
+ls /etc/systemd/system/posprint.service.d/
+bash /root/posprint/deploy/install.sh   # re-run; it will install it
+```
+
+Setting `--features nesting=1` on the container also makes the error go away,
+but don't: it loosens the container's isolation to buy in-container hardening
+that duplicates what the container already provides. A single-purpose
+unprivileged LXC running one non-root service with an empty capability set is
+already the security boundary. `NoNewPrivileges`, `CapabilityBoundingSet=` and
+every seccomp-based restriction keep working without a mount namespace.
 
 ### Permission denied on the device
 

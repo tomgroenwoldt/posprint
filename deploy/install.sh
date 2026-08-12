@@ -105,10 +105,26 @@ chown root:"$USER_NAME" "$ENV_FILE"
 
 step "Installing the systemd unit"
 install -m 0644 "$SRC/deploy/posprint.service" /etc/systemd/system/posprint.service
+
+# The unit's mount-namespace hardening cannot work in an unprivileged container;
+# systemd fails the start with 226/NAMESPACE. Relax exactly those directives
+# when containerised, and remove the drop-in again if this host is not.
+DROPIN_DIR="/etc/systemd/system/posprint.service.d"
+if systemd-detect-virt --container --quiet; then
+  mkdir -p "$DROPIN_DIR"
+  install -m 0644 "$SRC/deploy/posprint-container.conf" "$DROPIN_DIR/10-container.conf"
+  note "container detected ($(systemd-detect-virt --container)) - relaxed mount-namespace hardening"
+else
+  rm -f "$DROPIN_DIR/10-container.conf"
+  note "bare metal or VM - full hardening in effect"
+fi
+
 systemctl daemon-reload
 systemctl enable --quiet posprint
-systemctl restart posprint
-note "started"
+# Must not be fatal under `set -e`: a failed start has to fall through to the
+# Result block below, which dumps the journal. Aborting here instead would
+# leave the operator with "exited with error code" and nothing to act on.
+systemctl restart posprint || true
 
 sleep 2
 step "Result"
