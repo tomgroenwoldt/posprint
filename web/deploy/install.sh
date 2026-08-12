@@ -81,7 +81,7 @@ POSPRINTWEB_UPSTREAM_KEY=
 POSPRINTWEB_HOST=127.0.0.1
 POSPRINTWEB_PORT=8000
 POSPRINTWEB_TITLE=Print to my receipt printer
-POSPRINTWEB_BLURB=This prints on a real thermal printer in my flat. Be nice - I have to read it.
+POSPRINTWEB_BLURB=This prints on a real thermal printer in my flat.
 POSPRINTWEB_TZ=Europe/Berlin
 
 # --- abuse controls --------------------------------------------------------

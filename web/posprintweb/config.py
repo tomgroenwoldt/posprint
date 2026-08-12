@@ -44,10 +44,7 @@ class Config:
     host: str = "0.0.0.0"
     port: int = 8000
     site_title: str = "Print to my receipt printer"
-    site_blurb: str = (
-        "This prints on a real thermal printer in my flat. "
-        "Be nice — I have to read it."
-    )
+    site_blurb: str = "This prints on a real thermal printer in my flat."
 
     # Columns of the target paper. Only used to draw the preview and to reject
     # obviously oversized input; the real formatting happens upstream.
