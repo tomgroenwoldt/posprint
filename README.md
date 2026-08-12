@@ -48,8 +48,19 @@ not by locking at the device.
 
 Debian 12 is what this is tested against. Unprivileged is fine.
 
+Find and fetch a template first — the exact version string changes over time,
+so list what your host offers rather than copying one from here:
+
 ```bash
-pct create 110 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
+pveam update
+pveam available --section system | grep -E 'debian-1[23]'
+pveam download local debian-12-standard_<version>_amd64.tar.zst
+```
+
+Then create the container, substituting the same template name:
+
+```bash
+pct create 110 local:vztmpl/debian-12-standard_<version>_amd64.tar.zst \
   --hostname posprint \
   --cores 1 --memory 512 --rootfs local-lvm:4 \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
@@ -59,8 +70,20 @@ pct create 110 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
 
 ### 2. Wire up the USB passthrough (on the Proxmox host)
 
+Proxmox does not ship `git`, so either install it or pull a tarball:
+
 ```bash
+apt-get install -y git
 git clone https://github.com/tomgroenwoldt/posprint.git /root/posprint
+```
+
+```bash
+# no-git alternative
+curl -sL https://github.com/tomgroenwoldt/posprint/archive/refs/heads/main.tar.gz \
+  | tar xz -C /root && mv /root/posprint-main /root/posprint
+```
+
+```bash
 /root/posprint/deploy/host-setup.sh 110
 ```
 
