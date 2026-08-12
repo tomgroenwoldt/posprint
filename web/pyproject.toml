@@ -27,5 +27,7 @@ include = ["posprintweb*"]
 [tool.setuptools.package-data]
 posprintweb = ["static/*"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+# No [tool.pytest.ini_options] here on purpose: the repo root owns test config
+# so that `pytest` from the root collects both services. Running pytest from
+# inside web/ would otherwise pick this file as the rootdir and miss the
+# pythonpath entries it needs.

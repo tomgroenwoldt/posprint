@@ -11,6 +11,20 @@ curl -X POST http://10.0.0.50:8080/print/text \
 
 ---
 
+## What is in here
+
+| Path | What it is |
+| --- | --- |
+| `posprint/`, `tests/`, `deploy/` | This service. Talks to the USB printer. **LAN only** — the API key it uses unlocks raw ESC/POS and the cash drawer, so it must never be exposed to the internet. |
+| [`web/`](web/README.md) | `posprint-web`, an optional public page that lets strangers print a short message. It proxies to this service so that key stays server-side. |
+
+They deploy to separate containers with separate installers. You do not need
+`web/` to use the printer; skip it entirely if the LAN API is all you want.
+
+`pytest` from this directory runs both suites (116 tests).
+
+---
+
 ## How it works
 
 ```

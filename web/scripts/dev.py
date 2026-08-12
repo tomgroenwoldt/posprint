@@ -1,7 +1,7 @@
 """Run the site locally.
 
-    python scripts/dev.py            # talks to a real posprint at :8080
-    python scripts/dev.py --fake     # pretends the printer is there
+    python web/scripts/dev.py            # talks to a real posprint at :8080
+    python web/scripts/dev.py --fake     # pretends the printer is there
 
 Sets defaults that make sense on a laptop (a local database file, no quiet
 hours, generous quotas) so you can poke at the page without a printer, a

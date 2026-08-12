@@ -2,10 +2,12 @@
 #
 # Run this INSIDE THE CONTAINER as root.
 #
-#   ./deploy/install.sh
+#   ./web/deploy/install.sh
 #
 # Installs posprint-web to /opt/posprint-web in a virtualenv, creates a system
-# user, and starts it under systemd.
+# user, and starts it under systemd. Only touches the web front end: the
+# printer service at the repo root has its own installer and belongs in its own
+# container.
 #
 # Idempotent: re-running upgrades the code in place and keeps the existing
 # config, database and admin key.
@@ -22,7 +24,7 @@ step() { echo; echo "==> $*"; }
 note() { echo "  $*"; }
 
 [[ $EUID -eq 0 ]] || die "must run as root inside the container"
-[[ -f "$SRC/requirements.txt" ]] || die "run this from the posprint-web checkout ($SRC looks wrong)"
+[[ -d "$SRC/posprintweb" ]] || die "run this as web/deploy/install.sh from a posprint checkout ($SRC looks wrong)"
 
 step "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive

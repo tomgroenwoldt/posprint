@@ -3,12 +3,14 @@
 A public web page that lets anyone on the internet print a short message on a
 real thermal receipt printer in your home.
 
-It is the internet-facing half of [posprint](https://github.com/tomgroenwoldt/posprint),
-which is the LAN-only service that actually drives the USB printer.
+It is the internet-facing half of [posprint](../README.md), the LAN-only
+service at the root of this repo that actually drives the USB printer. The two
+live together but deploy separately: different containers, different systemd
+units, different dependencies.
 
 ```
   browser  ──(no credentials)──▶  posprint-web  ──(X-API-Key)──▶  posprint  ──▶  USB
-   public                          this repo                       LAN only     /dev/usb/lp0
+   public                            web/                        repo root     /dev/usb/lp0
 ```
 
 ## Why a proxy and not a static page
@@ -54,18 +56,24 @@ default footer text already does.
 
 ## Running it locally
 
+From the repo root:
+
 ```bash
 python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -r requirements.txt pytest
-python scripts/dev.py --fake                     # http://127.0.0.1:8000
+pip install -r web/requirements.txt pytest
+python web/scripts/dev.py --fake                 # http://127.0.0.1:8000
 ```
 
 `--fake` stands in for the printer and dumps receipts to stdout, so you can work
 on the page without hardware. Drop it to talk to a real posprint on `:8080`.
 
 ```bash
-PYTHONPATH=. pytest -q      # 61 tests
+pytest -q      # 116 tests: both services
+pytest web -q  # 61: just this one
 ```
+
+No `PYTHONPATH` needed — the root `pyproject.toml` puts both package roots on
+the path.
 
 ## Deploying it
 
@@ -94,9 +102,12 @@ Inside the container:
 
 ```bash
 apt-get update && apt-get install -y git      # PVE templates ship without it
-git clone https://github.com/tomgroenwoldt/posprint-web.git /root/posprint-web
-bash /root/posprint-web/deploy/install.sh
+git clone https://github.com/tomgroenwoldt/posprint.git /root/posprint
+bash /root/posprint/web/deploy/install.sh
 ```
+
+The clone carries both services; `web/deploy/install.sh` only installs this one,
+so nothing printer-related is set up in this container.
 
 Then wire it to the printer. Get the key from the *posprint* container:
 

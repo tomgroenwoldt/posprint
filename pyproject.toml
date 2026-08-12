@@ -20,3 +20,16 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["posprint*"]
+
+# Two services live here: the printer driver at the root, and the public web
+# front end under web/. They deploy independently and have separate
+# requirements; this config only exists so `pytest` from the root runs both.
+#
+# pythonpath puts both package roots on sys.path, so no PYTHONPATH is needed.
+# importlib import mode is required because each service has its own
+# tests/test_api.py, and the default mode cannot tell two same-named test
+# modules apart without __init__.py files.
+[tool.pytest.ini_options]
+testpaths = ["tests", "web/tests"]
+pythonpath = [".", "web"]
+addopts = "--import-mode=importlib"

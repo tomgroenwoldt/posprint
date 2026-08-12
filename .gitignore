@@ -4,3 +4,16 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.egg-info/
+build/
+dist/
+
+# Runtime state and secrets - never commit these.
+*.db
+*.sqlite
+posprint.env
+posprintweb.env
+blocklist.txt
+
+# Local dev artefacts
+dev-disabled
+.claude/
