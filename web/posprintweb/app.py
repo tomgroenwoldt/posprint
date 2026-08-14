@@ -303,7 +303,28 @@ async def index() -> FileResponse:
     return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
 
 
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+class RevalidatingStatic(StaticFiles):
+    """Serve /static with must-revalidate semantics.
+
+    Without an explicit Cache-Control, browsers apply heuristic freshness to
+    these files and can hold a cached app.js for days. After a deploy that
+    means visitors run old JavaScript against a new API: the page went on
+    saying "the printer is offline or out of paper" long after the server had
+    learned to tell those two apart, and no amount of redeploying fixed it.
+
+    "no-cache" does not mean "do not store" - the browser keeps the file but
+    must revalidate before using it. StaticFiles already sends an ETag, so the
+    common case is a 304 and a few bytes. On a page this size that is free, and
+    it makes a deploy actually reach people.
+    """
+
+    def file_response(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        response = super().file_response(*args, **kwargs)
+        response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
+
+app.mount("/static", RevalidatingStatic(directory=STATIC), name="static")
 
 
 def main() -> None:

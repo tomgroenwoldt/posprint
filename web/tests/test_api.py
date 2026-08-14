@@ -154,6 +154,18 @@ def test_extra_fields_are_ignored(client, fake):
     assert len(fake.jobs) == 1
 
 
+def test_static_assets_must_be_revalidated(client):
+    """A deploy has to actually reach people.
+
+    Without this header browsers cache app.js heuristically and keep running
+    old JavaScript against a new API for days.
+    """
+    r = client.get("/static/app.js")
+    assert r.status_code == 200
+    assert "no-cache" in r.headers.get("cache-control", "")
+    assert r.headers.get("etag")
+
+
 def test_admin_log_is_hidden_without_a_key(client):
     assert client.get("/admin/log").status_code == 404
 
