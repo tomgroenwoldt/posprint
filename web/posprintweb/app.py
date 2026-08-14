@@ -173,6 +173,9 @@ async def status(request: Request) -> dict:
         "title": cfg.site_title,
         "blurb": cfg.site_blurb,
         "online": printer.get("ok", False) and not killed(),
+        # "ready" | "out_of_paper" | "offline". `online` stays for anything
+        # already reading it; this is the field that says which problem it is.
+        "printer_state": printer.get("state", "offline"),
         "disabled": killed(),
         "quiet": in_quiet_hours(),
         "quiet_hours": {"start": cfg.quiet_start_hour, "end": cfg.quiet_end_hour},
@@ -262,8 +265,15 @@ async def print_message(
         # The visitor did nothing wrong, so give the quota back.
         if reservation is not None:
             store.release(reservation)
-        log.error("print failed for %s: %s", ip, exc)
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        log.error("print failed for %s (%s): %s", ip, exc.reason, exc)
+        detail = str(exc)
+        if exc.reason == "out_of_paper":
+            detail = (
+                "The printer is out of paper. Nothing was printed and this did "
+                "not use up any of your prints - try again once the roll is "
+                "changed."
+            )
+        raise HTTPException(status_code=502, detail=detail) from exc
 
     if reservation is not None:
         store.finish(reservation, "printed", result.get("job_id", ""))

@@ -35,6 +35,7 @@ class FakeUpstream:
         self.jobs = []
         self.fail = False
         self.online = True
+        self.state = "ready"
 
     async def start(self):
         pass
@@ -43,11 +44,17 @@ class FakeUpstream:
         pass
 
     async def health(self):
-        return {"ok": self.online, "device_present": self.online}
+        return {
+            "ok": self.online,
+            "state": self.state if self.online else "offline",
+            "device_present": self.online,
+        }
 
     async def print_message(self, *, message, name, columns, when, note=""):
         if self.fail:
-            raise UpstreamError("the printer is offline or out of paper")
+            raise UpstreamError("the printer is offline", "offline")
+        if self.state == "out_of_paper":
+            raise UpstreamError("the printer is out of paper", "out_of_paper")
         self.jobs.append({"message": message, "name": name})
         return {"job_id": f"job-{len(self.jobs)}", "state": "done"}
 
@@ -297,6 +304,26 @@ def test_printer_failure_gives_the_quota_back(client, fake):
 def test_offline_printer_shows_in_status(client, fake):
     fake.online = False
     assert client.get("/api/status").json()["online"] is False
+
+
+def test_status_distinguishes_out_of_paper_from_offline(client, fake):
+    """Two different errands for whoever has to fix it."""
+    fake.state = "out_of_paper"
+    assert client.get("/api/status").json()["printer_state"] == "out_of_paper"
+
+    fake.online = False
+    assert client.get("/api/status").json()["printer_state"] == "offline"
+
+
+def test_out_of_paper_says_so_and_refunds_the_quota(client, fake):
+    fake.state = "out_of_paper"
+    r = send(client, ip="4.4.4.4")
+    assert r.status_code == 502
+    assert "out of paper" in r.json()["detail"]
+
+    # The visitor did nothing wrong: no cooldown, no lost daily print.
+    fake.state = "ready"
+    assert send(client, ip="4.4.4.4").status_code == 200
 
 
 # -- gates ----------------------------------------------------------------

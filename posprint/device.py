@@ -31,9 +31,30 @@ DEVICE_GLOB = "/dev/usb/lp*"
 class PrinterUnavailable(RuntimeError):
     """No usable printer device node right now (unplugged, powered off, no perms)."""
 
+    reason = "offline"
+
+
+class PrinterOutOfPaper(PrinterUnavailable):
+    """The printer is there and healthy; the roll is empty.
+
+    A subclass so every existing `except PrinterUnavailable` keeps working, but
+    callers that care can tell the two apart. They need very different words:
+    "offline" sends you looking for a cable, "out of paper" sends you to the
+    drawer for a new roll.
+
+    This one matters more than it looks. A thermal printer with no paper still
+    accepts bytes over USB - they land in its buffer and the write returns
+    success - so without an explicit check every job is reported as printed and
+    silently produces nothing.
+    """
+
+    reason = "out_of_paper"
+
 
 class PrinterWriteError(RuntimeError):
     """The device node existed but the write failed."""
+
+    reason = "write_failed"
 
 
 @dataclass
@@ -202,6 +223,9 @@ class Job:
     label: str = ""
     state: JobState = "queued"
     error: str | None = None
+    # Machine-readable counterpart to `error`, so callers can branch on the
+    # failure instead of pattern-matching English. See PrinterOutOfPaper.
+    reason: str | None = None
     bytes_written: int = 0
     queued_at: float = field(default_factory=time.time)
     started_at: float | None = None
@@ -217,6 +241,7 @@ class Job:
             "label": self.label,
             "state": self.state,
             "error": self.error,
+            "reason": self.reason,
             "bytes": len(self.data),
             "bytes_written": self.bytes_written,
             "queued_at": self.queued_at,
@@ -328,6 +353,7 @@ class PrintSpooler:
         job.started_at = time.time()
         try:
             path = discover_device(self.configured_device)
+            self._require_paper(path)
             job.bytes_written = write_bytes(
                 path, job.data, self.chunk_bytes, self.chunk_delay_ms
             )
@@ -338,16 +364,31 @@ class PrintSpooler:
         except (PrinterUnavailable, PrinterWriteError) as exc:
             job.state = "failed"
             job.error = str(exc)
+            job.reason = getattr(exc, "reason", "offline")
             self.last_error = str(exc)
-            log.warning("job %s failed: %s", job.id, exc)
+            log.warning("job %s failed (%s): %s", job.id, job.reason, exc)
         except Exception as exc:  # noqa: BLE001 - worker must never die
             job.state = "failed"
             job.error = f"unexpected error: {exc}"
+            job.reason = "error"
             self.last_error = job.error
             log.exception("job %s crashed", job.id)
         finally:
             job.finished_at = time.time()
             job._done.set()
+
+    def _require_paper(self, path: str) -> None:
+        """Refuse the job when the roll is *definitely* empty.
+
+        Deliberately `is False` and not `not paper_ok`. The status byte is
+        advisory: clones that do not implement LPGETSTATUS come back as None
+        via the open-only fallback, and treating None as empty would refuse
+        every job forever on exactly the printers that can least afford it.
+        Only an honest, explicit paper-empty bit stops a print.
+        """
+        status = read_status(path)
+        if status.paper_ok is False:
+            raise PrinterOutOfPaper("the printer is out of paper")
 
     # -- health -----------------------------------------------------------
 
@@ -358,16 +399,33 @@ class PrintSpooler:
             "last_error": self.last_error,
             "last_success_at": self.last_success_at,
         }
+        # One authoritative state, computed here so the API, the web front end
+        # and the page cannot each invent their own rules for it.
+        #
+        #   offline      - no device node: unplugged, powered off, no permission
+        #   out_of_paper - device is fine, the roll is empty
+        #   ready        - will print, as far as anything can be known in advance
+        #
+        # "ready" covers paper_ok=None: a printer that does not report status is
+        # assumed willing, because the alternative is refusing to print at all.
+        info["paper_ok"] = None
         try:
             path = discover_device(self.configured_device)
             info["device"] = path
             info["device_present"] = True
             try:
-                info["printer"] = read_status(path).as_dict()
+                status = read_status(path)
+                info["printer"] = status.as_dict()
+                info["paper_ok"] = status.paper_ok
+                info["state"] = "out_of_paper" if status.paper_ok is False else "ready"
             except PrinterUnavailable as exc:
                 info["printer"] = {"online": False, "detail": str(exc)}
+                info["state"] = "offline"
         except PrinterUnavailable as exc:
             info["device"] = self.configured_device or DEVICE_GLOB
             info["device_present"] = False
             info["detail"] = str(exc)
+            info["state"] = "offline"
+        if not info["worker_alive"]:
+            info["state"] = "offline"
         return info

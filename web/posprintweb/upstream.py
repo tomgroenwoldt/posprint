@@ -16,7 +16,16 @@ log = logging.getLogger("posprintweb.upstream")
 
 
 class UpstreamError(Exception):
-    """The printer could not be reached, or refused the job."""
+    """The printer could not be reached, or refused the job.
+
+    `reason` mirrors posprint's job reason so the page can say which of the two
+    boring physical problems it is. "Out of paper" is actionable by whoever
+    lives with the printer; "offline" is not the same errand.
+    """
+
+    def __init__(self, message: str, reason: str = "error") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 class Upstream:
@@ -43,14 +52,20 @@ class Upstream:
         try:
             r = await self._client.get("/health", timeout=5.0)
             body = r.json() if r.content else {}
+            # posprint answers 503 for both "unplugged" and "out of paper", so
+            # the state comes from the body, not the status code.
             return {
                 "ok": r.status_code == 200,
+                "state": body.get("state", "offline"),
                 "device_present": bool(body.get("device_present")),
                 "paper": (body.get("config") or {}).get("paper_mm"),
             }
         except Exception as exc:  # noqa: BLE001
             log.warning("upstream health check failed: %s", exc)
-            return {"ok": False, "detail": str(exc)}
+            # Unreachable posprint is an outage, not an empty roll. Saying
+            # "out of paper" here would send someone to load a roll into a
+            # printer whose service is down.
+            return {"ok": False, "state": "offline", "detail": str(exc)}
 
     async def print_message(
         self,
@@ -104,14 +119,24 @@ class Upstream:
         if r.status_code == 401:
             # Ours to fix, not the visitor's. Log loudly, stay vague publicly.
             log.error("upstream rejected our API key (401) - check POSPRINTWEB_UPSTREAM_KEY")
-            raise UpstreamError("the printer is misconfigured")
-        if r.status_code == 503:
-            raise UpstreamError("the printer is offline or out of paper")
+            raise UpstreamError("the printer is misconfigured", "misconfigured")
 
-        detail = ""
+        body = {}
         try:
-            detail = r.json().get("detail", "")
+            body = r.json() if r.content else {}
         except Exception:  # noqa: BLE001
-            detail = r.text[:200]
-        log.error("upstream returned %s: %s", r.status_code, detail)
-        raise UpstreamError("the printer refused the job")
+            body = {}
+
+        # A job that reached the spooler and failed comes back as 502 with the
+        # job payload; a job refused before it got there is a 503 with a detail.
+        reason = body.get("reason") or ""
+        if reason == "out_of_paper":
+            raise UpstreamError("the printer is out of paper", "out_of_paper")
+        if reason == "offline" or r.status_code == 503:
+            raise UpstreamError("the printer is offline", "offline")
+
+        log.error(
+            "upstream returned %s (%s): %s",
+            r.status_code, reason or "-", body.get("error") or body.get("detail") or r.text[:200],
+        )
+        raise UpstreamError("the printer refused the job", reason or "error")

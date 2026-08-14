@@ -133,8 +133,10 @@ def health() -> JSONResponse:
         "codepage": cfg.codepage,
         "auth": bool(cfg.api_key),
     }
-    ok = info["device_present"] and info["worker_alive"]
-    return JSONResponse(info, status_code=200 if ok else 503)
+    # Out of paper is a 503 as much as unplugged is: nothing submitted now will
+    # reach paper. Callers that need to tell them apart read `state` from the
+    # body rather than inferring it from the status code.
+    return JSONResponse(info, status_code=200 if info["state"] == "ready" else 503)
 
 
 @app.get("/jobs", dependencies=[Auth], summary="Recent jobs, newest first")

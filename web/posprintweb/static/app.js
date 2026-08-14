@@ -234,8 +234,11 @@ async function refreshStatus() {
       setStatus("asleep",
         `Asleep until ${String(s.quiet_hours.end).padStart(2, "0")}:00 — ` +
         `it is ${s.local_time} there.`);
+    } else if (s.printer_state === "out_of_paper") {
+      setStatus("offline", "The printer is out of paper. Nothing can print " +
+        "until someone changes the roll.");
     } else if (!s.online) {
-      setStatus("offline", "The printer is offline or out of paper.");
+      setStatus("offline", "The printer is offline.");
     } else {
       setStatus("online", "Printer is online.");
       printerBlocked = false;

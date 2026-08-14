@@ -280,6 +280,66 @@ def test_health_reports_unhealthy_when_device_missing(client):
         os.rename(FAKE_DEVICE + ".away", FAKE_DEVICE)
 
 
+# -- out of paper ---------------------------------------------------------
+#
+# This is the failure that used to be invisible. A thermal printer with an empty
+# roll still accepts bytes over USB, so the write succeeds, the job is marked
+# done, and nothing is printed. Only the status byte knows.
+
+
+def _paper(monkeypatch, paper_ok):
+    from posprint import device
+
+    def fake_status(path):
+        return device.PrinterStatus(
+            online=True, paper_ok=paper_ok, error=False, raw=None, source="test"
+        )
+
+    monkeypatch.setattr(device, "read_status", fake_status)
+
+
+def test_out_of_paper_fails_the_job_instead_of_pretending(client, monkeypatch):
+    _paper(monkeypatch, False)
+    r = client.post("/print/text", json={"text": "into the void"}, headers=KEY)
+    assert r.status_code == 502
+    body = r.json()
+    assert body["state"] == "failed"
+    assert body["reason"] == "out_of_paper"
+    # Nothing must reach the device: the bytes would sit in the printer's
+    # buffer and surface later as a mystery receipt.
+    assert spooled() == b""
+
+
+def test_out_of_paper_shows_in_health(client, monkeypatch):
+    _paper(monkeypatch, False)
+    r = client.get("/health")
+    assert r.status_code == 503
+    body = r.json()
+    assert body["state"] == "out_of_paper"
+    assert body["paper_ok"] is False
+    # Still present and working - that is the whole distinction.
+    assert body["device_present"] is True
+
+
+def test_unknown_paper_status_still_prints(client, monkeypatch):
+    """Clones that do not implement LPGETSTATUS report None, not False.
+
+    Treating None as empty would refuse every job forever on exactly the
+    printers with no way to prove themselves.
+    """
+    _paper(monkeypatch, None)
+    r = client.post("/print/text", json={"text": "hello"}, headers=KEY)
+    assert r.status_code == 200
+    assert spooled() != b""
+
+
+def test_health_is_ready_when_paper_is_present(client, monkeypatch):
+    _paper(monkeypatch, True)
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json()["state"] == "ready"
+
+
 def test_fire_and_forget_returns_202(client):
     r = client.post("/print/text", json={"text": "async", "wait": False}, headers=KEY)
     assert r.status_code == 202

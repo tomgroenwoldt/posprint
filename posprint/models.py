@@ -206,6 +206,9 @@ class JobResponse(BaseModel):
     state: str
     label: str = ""
     error: str | None = None
+    # "offline", "out_of_paper", "write_failed", "error" - stable identifiers
+    # for a failed job, so callers need not parse `error` prose.
+    reason: str | None = None
     bytes: int = 0
     bytes_written: int = 0
     queued_at: float | None = None
