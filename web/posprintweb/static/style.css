@@ -7,6 +7,9 @@
   --accent: #1f6feb;
   --bad: #b3261e;
   --good: #1f7a3d;
+  /* Out of paper is not the same as broken: someone can fix it in ten
+     seconds. Amber says "wait", red says "something is wrong". */
+  --warn: #a15c00;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
 }
 
@@ -18,6 +21,7 @@
     --paper: #211f1c;
     --line: #3a3730;
     --accent: #6ea8fe;
+    --warn: #d99a3d;
   }
 }
 
@@ -59,6 +63,7 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
 }
 .status--online::before { background: var(--good); }
 .status--offline::before, .status--asleep::before { background: var(--bad); }
+.status--paper::before { background: var(--warn); }
 .status--pending::before { background: var(--muted); animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity: .25; } }
 
