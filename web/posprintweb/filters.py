@@ -133,7 +133,11 @@ def clean(text: str) -> str:
     # Cap consecutive blank lines; 200 newlines is a paper-waste attack that
     # passes a naive character count.
     text = _MANY_BLANKS.sub("\n\n\n", text)
-    return text.strip()
+    # Trim blank lines top and bottom, but NOT indentation. A plain .strip()
+    # here ate the leading spaces of the first line only, so ASCII art arrived
+    # with its top row shifted left and every other row intact - which reads as
+    # a broken printer rather than a mangled string.
+    return text.strip("\n")
 
 
 def _has_flood(text: str) -> bool:
@@ -159,7 +163,9 @@ def check_message(
     """Clean and validate a message body. Returns the cleaned text."""
     text = clean(text)
 
-    if not text:
+    # `text` may now be all whitespace: clean() no longer strips indentation,
+    # so a message of nothing but spaces survives it.
+    if not text.strip():
         raise Rejected("Nothing to print.")
     if len(text) > max_chars:
         raise Rejected(f"Too long: {len(text)} characters, the limit is {max_chars}.")

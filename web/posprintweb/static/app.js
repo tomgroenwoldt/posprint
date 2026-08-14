@@ -68,30 +68,43 @@ function toPaper(text) {
 
 /* -- receipt preview ----------------------------------------------------- */
 
-// Mirrors the wrapping posprint does at print time. It will not be byte-exact
-// for characters the printer's codepage lacks, but it gets the line breaks
-// right, which is the part people care about.
+// Mirrors the wrapping posprint does at print time, which is Python's textwrap:
+// runs of spaces survive inside a line, are dropped where a line breaks, and
+// the first line keeps its indent.
+//
+// The previous version split on /\s+/ and rejoined with single spaces, which
+// silently flattened every run. Prose survived that; ASCII art did not, and the
+// preview disagreed with the paper for exactly the messages where alignment is
+// the entire point.
 function wrap(text, cols) {
   const out = [];
   for (const para of text.split("\n")) {
-    if (!para) { out.push(""); continue; }
+    // The overwhelmingly common case, and the one art depends on: it fits, so
+    // it goes through untouched, spacing and all.
+    if (para.length <= cols) { out.push(para); continue; }
+
+    const chunks = para.split(/(\s+)/).filter((c) => c !== "");
     let line = "";
-    for (const word of para.split(/\s+/)) {
-      if (!word) continue;
-      if (!line) {
-        line = word;
-      } else if (line.length + 1 + word.length <= cols) {
-        line += " " + word;
-      } else {
-        out.push(line);
-        line = word;
+    let firstLine = true;
+    const flush = () => { out.push(line.replace(/\s+$/, "")); line = ""; firstLine = false; };
+
+    for (const chunk of chunks) {
+      const isSpace = /^\s+$/.test(chunk);
+      // Whitespace that lands at the start of a continuation line is dropped;
+      // on the very first line it is indentation and must be kept.
+      if (isSpace && line === "" && !firstLine) continue;
+      if (line.length + chunk.length <= cols) { line += chunk; continue; }
+      if (isSpace) { flush(); continue; }
+      if (line !== "") flush();
+      let word = chunk;
+      while (word.length > cols) {          // a single word longer than the roll
+        out.push(word.slice(0, cols));
+        word = word.slice(cols);
+        firstLine = false;
       }
-      while (line.length > cols) {          // a single word longer than the roll
-        out.push(line.slice(0, cols));
-        line = line.slice(cols);
-      }
+      line = word;
     }
-    out.push(line);
+    if (line !== "") flush();
   }
   return out;
 }
@@ -111,7 +124,10 @@ function stamp() {
 
 function renderPreview() {
   const cols = limits.columns;
-  const typed = el.message.value.trim();
+  // Mirrors filters.clean(): trailing spaces go, blank lines top and bottom go,
+  // indentation stays. A .trim() here would re-introduce the exact bug this
+  // preview exists to catch.
+  const typed = el.message.value.replace(/[ \t]+$/gm, "").replace(/^\n+|\n+$/g, "");
   const from = el.name.value.trim();
 
   // Preview what the printer will produce, not what the browser can display.
@@ -121,7 +137,7 @@ function renderPreview() {
   const sender = toPaper(from);
   unprintable = [...new Set([...message.bad, ...sender.bad])];
 
-  const body = message.text || "…";
+  const body = message.text.trim() ? message.text : "…";
   const who = sender.text || "someone on the internet";
 
   const parts = [

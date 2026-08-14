@@ -214,6 +214,25 @@ def test_unprintable_name_is_refused(client):
     assert send(client, name="Ольга").status_code == 422
 
 
+CAT = " /\\ /\\\n((ovo))\n():::()\n  VVV"
+
+
+def test_ascii_art_keeps_its_indentation(client, fake):
+    """The first line used to lose its leading spaces and nothing else did.
+
+    clean() finished with .strip(), which trims the whole message rather than
+    each line, so row one of a drawing arrived shifted left while rows two
+    onward were untouched. On paper that reads as a printer fault.
+    """
+    assert send(client, message=CAT).status_code == 200
+    assert fake.jobs[0]["message"] == CAT
+
+
+def test_a_message_of_only_spaces_is_still_rejected(client):
+    """clean() no longer strips indentation, so emptiness needs its own check."""
+    assert send(client, message="    ").status_code == 422
+
+
 def test_accents_are_allowed(client, fake):
     """The printer degrades these rather than failing, so they must get through.
 

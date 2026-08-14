@@ -85,8 +85,23 @@ def test_blocklist_is_case_insensitive():
         check_message("BADWORD", blocklist=("badword",), **LIMITS)
 
 
-def test_clean_message_passes_through():
-    assert check_message("  Hello, printer!  ", **LIMITS) == "Hello, printer!"
+def test_trailing_whitespace_goes_but_indentation_stays():
+    """Deliberate asymmetry.
+
+    Trailing spaces are invisible and never meant; leading spaces are how you
+    draw. This used to .strip() both, which quietly shifted the first line of
+    any ASCII art left while leaving the rest of it alone.
+    """
+    assert check_message("  Hello, printer!  ", **LIMITS) == "  Hello, printer!"
+
+
+def test_blank_lines_are_trimmed_but_indentation_survives():
+    assert check_message("\n\n  drawing\n   here \n\n", **LIMITS) == "  drawing\n   here"
+
+
+def test_whitespace_only_message_is_rejected():
+    with pytest.raises(Rejected, match="Nothing to print"):
+        check_message("    ", **LIMITS)
 
 
 def test_name_is_flattened_to_one_line():
