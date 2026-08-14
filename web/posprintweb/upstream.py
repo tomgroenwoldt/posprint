@@ -92,7 +92,13 @@ class Upstream:
              "width": 2, "height": 2},
             {"type": "text", "text": when.strftime("%Y-%m-%d %H:%M"), "align": "center"},
             {"type": "rule", "char": "="},
-            {"type": "text", "text": message, "wrap": True},
+            # align is explicit on purpose. posprint only emits ESC a when a
+            # block names an alignment, so a block that omits it inherits
+            # whatever the previous one set. This one happens to follow a rule
+            # that leaves the printer left-aligned, but reorder the list and
+            # the message would silently centre - which for ASCII art destroys
+            # the drawing far more thoroughly than a missing leading space.
+            {"type": "text", "text": message, "wrap": True, "align": "left"},
             {"type": "rule", "char": "-"},
             {"type": "text", "text": f"from: {header}", "align": "right"},
         ]
