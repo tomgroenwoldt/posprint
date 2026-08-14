@@ -253,9 +253,18 @@ journalctl -u posprintweb -f
 `journalctl -u posprintweb`, not on the page — visitors should not be told
 which of your secrets is wrong.
 
-**Page says "offline or out of paper".** Check posprint itself:
-`curl -s http://<CT-110-IP>:8080/health`. `device_present: false` means the USB
-node is missing; see posprint's README.
+**Page says "the printer is out of paper".** It is. `GET /api/status` reports
+`printer_state: out_of_paper`, which posprint derives from the printer's status
+byte. Change the roll; no restart needed.
+
+**Page says "the printer is offline".** posprint cannot see a device node at
+all. Check it directly: `curl -s http://<CT-110-IP>:8080/health`. A `state` of
+`offline` with `device_present: false` means the USB node is missing — see
+posprint's README.
+
+**The page shows an old message after a deploy.** It should not: `/static` is
+served `no-cache` so browsers revalidate. If it persists, you are looking at a
+cached page from before that fix — hard-reload once.
 
 **Everyone shares one rate limit.** A proxy is in front but
 `POSPRINTWEB_TRUST_PROXY` is still `false`.
