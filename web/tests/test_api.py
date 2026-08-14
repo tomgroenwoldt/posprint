@@ -214,7 +214,7 @@ def test_unprintable_name_is_refused(client):
     assert send(client, name="Ольга").status_code == 422
 
 
-CAT = " /\\ /\\\n((ovo))\n():::()\n  VVV"
+MWEOL = " /\\ /\\\n((ovo))\n():::()\n  VVV"
 
 
 def test_ascii_art_keeps_its_indentation(client, fake):
@@ -222,10 +222,11 @@ def test_ascii_art_keeps_its_indentation(client, fake):
 
     clean() finished with .strip(), which trims the whole message rather than
     each line, so row one of a drawing arrived shifted left while rows two
-    onward were untouched. On paper that reads as a printer fault.
+    onward were untouched. On paper that reads as a printer fault - mweol's
+    ears came out crooked.
     """
-    assert send(client, message=CAT).status_code == 200
-    assert fake.jobs[0]["message"] == CAT
+    assert send(client, message=MWEOL).status_code == 200
+    assert fake.jobs[0]["message"] == MWEOL
 
 
 def test_a_message_of_only_spaces_is_still_rejected(client):
