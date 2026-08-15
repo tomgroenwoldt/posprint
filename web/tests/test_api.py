@@ -50,12 +50,13 @@ class FakeUpstream:
             "device_present": self.online,
         }
 
-    async def print_message(self, *, message, name, columns, when, note=""):
+    async def print_message(self, *, message, name, columns, when, note="",
+                            image_png=None):
         if self.fail:
             raise UpstreamError("the printer is offline", "offline")
         if self.state == "out_of_paper":
             raise UpstreamError("the printer is out of paper", "out_of_paper")
-        self.jobs.append({"message": message, "name": name})
+        self.jobs.append({"message": message, "name": name, "image_png": image_png})
         return {"job_id": f"job-{len(self.jobs)}", "state": "done"}
 
 
@@ -126,7 +127,9 @@ def test_print_succeeds(client, fake):
     r = send(client)
     assert r.status_code == 200
     assert r.json()["ok"] is True
-    assert fake.jobs == [{"message": "hello printer", "name": "tom"}]
+    assert fake.jobs == [
+        {"message": "hello printer", "name": "tom", "image_png": None}
+    ]
 
 
 def test_print_records_remaining_quota(client):
@@ -204,6 +207,47 @@ def test_korean_is_refused_rather_than_printed_as_question_marks(client, fake):
     assert r.status_code == 422
     assert "no glyph" in r.json()["detail"]
     assert fake.jobs == []
+
+
+def test_braille_prints_as_a_picture(client, fake):
+    """The one script with no glyphs that still prints perfectly.
+
+    It bypasses max_chars and the codepage check entirely: what reaches the
+    printer is a decoded bitmap, not text.
+    """
+    art = "\n".join("⠿" * 20 for _ in range(10))
+    r = send(client, message=art)
+    assert r.status_code == 200
+    job = fake.jobs[0]
+    assert job["image_png"], "braille must be sent as an image, not as text"
+    assert job["message"] == art
+
+
+def test_braille_may_exceed_the_text_character_limit(client, fake):
+    """1200 cells is far past max_chars=200, and entirely legitimate."""
+    art = "\n".join("⠿" * 60 for _ in range(20))
+    assert len(art) > 200
+    assert send(client, message=art).status_code == 200
+
+
+def test_braille_mixed_with_text_is_refused(client, fake):
+    r = send(client, message="look at this ⠿⠿⠿")
+    assert r.status_code == 422
+    assert "on its own" in r.json()["detail"]
+    assert fake.jobs == []
+
+
+def test_oversized_braille_is_refused(client):
+    r = send(client, message="⠿" * 400)
+    assert r.status_code == 422
+    assert "wide" in r.json()["detail"]
+
+
+def test_status_publishes_braille_limits(client):
+    b = client.get("/api/status").json()["braille"]
+    assert b["enabled"] is True
+    assert b["max_cols"] > 48        # wider than the text column count
+    assert b["printer_dots"] == 576
 
 
 def test_emoji_is_refused(client):

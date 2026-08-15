@@ -118,6 +118,11 @@ button:disabled { background: var(--muted); cursor: not-allowed; opacity: .7; }
   border-left-color: var(--good); color: var(--good);
   background: color-mix(in srgb, var(--good) 8%, transparent);
 }
+/* Neither failure nor success: "here is what will happen". */
+.error--info {
+  border-left-color: var(--accent); color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
 
 /* -- receipt preview ---------------------------------------------------- */
 

@@ -7,6 +7,7 @@ posprint, and the key never crosses that boundary.
 
 from __future__ import annotations
 
+import base64
 import logging
 from datetime import datetime
 
@@ -75,6 +76,7 @@ class Upstream:
         columns: int,
         when: datetime,
         note: str = "",
+        image_png: bytes | None = None,
     ) -> dict:
         """Render a message as a fixed document and send it to the printer.
 
@@ -87,6 +89,20 @@ class Upstream:
             raise UpstreamError("upstream client not started")
 
         header = name or "someone on the internet"
+
+        if image_png is not None:
+            # Braille art, decoded back into the bitmap it always was. dither
+            # is off because the image is already 1-bit: dithering it would
+            # only add noise to something that is exactly right.
+            body: dict = {
+                "type": "image",
+                "data_base64": base64.b64encode(image_png).decode("ascii"),
+                "dither": False,
+                "align": "center",
+            }
+        else:
+            body = {"type": "text", "text": message, "wrap": True, "align": "left"}
+
         blocks: list[dict] = [
             {"type": "text", "text": "INCOMING", "align": "center", "bold": True,
              "width": 2, "height": 2},
@@ -98,7 +114,7 @@ class Upstream:
             # that leaves the printer left-aligned, but reorder the list and
             # the message would silently centre - which for ASCII art destroys
             # the drawing far more thoroughly than a missing leading space.
-            {"type": "text", "text": message, "wrap": True, "align": "left"},
+            body,
             {"type": "rule", "char": "-"},
             {"type": "text", "text": f"from: {header}", "align": "right"},
         ]

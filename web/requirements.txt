@@ -2,5 +2,8 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 httpx>=0.26
 pydantic>=2.6
+# Braille art is decoded back into the bitmap it encodes and printed as an
+# image; the printer has no glyphs for U+2800-U+28FF.
+pillow>=10.3
 # zoneinfo has no bundled database on Windows, and quiet hours depend on it.
 tzdata>=2024.1; sys_platform == "win32"

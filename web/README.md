@@ -44,6 +44,7 @@ removing any one of them leaves a hole worth caring about.
 | Blocklist evasion with invisible characters | Zero-width and bidi-override characters are stripped; matching folds accents and strips separators, so `b-à-d` still matches `bad`. |
 | Character floods (`AAAA…` ×5000) | Rejected before the length check can be gamed; runs of 200 blank lines collapse too. |
 | A whole print spent on `??????` | The printer has one 8-bit code page. Text it cannot render — Korean, Chinese, Cyrillic, emoji — is refused with the offending characters named, and the live preview shows what the paper will actually say rather than what the browser can display. Accents and smart quotes are *not* refused: posprint degrades those to `e` and `"`, which still reads. |
+| A picture costing far more roll than a message | Braille art prints as a bitmap (see below), so it gets its own limits — a grid and a height in dots, not a character count. `POSPRINTWEB_BRAILLE_MAX_DOTS` caps the paper one picture may spend; `POSPRINTWEB_BRAILLE=false` disables the feature outright. |
 | Printer chattering at 03:00 | Quiet hours, local to your timezone, wrapping midnight correctly. |
 | Rate limits bypassed by forging `X-Forwarded-For` | Ignored unless `POSPRINTWEB_TRUST_PROXY=true`, which you set **only** once a trusted proxy is actually in front. |
 | It all goes wrong at once | `touch /etc/posprintweb.disabled` stops printing immediately, no restart. |
@@ -185,6 +186,34 @@ Getting that order wrong is the one mistake with teeth:
 Tailscale Funnel works too and is less setup, but gives you no request-level
 controls of its own.
 
+## Braille art
+
+`U+2800`–`U+28FF` has no glyph in any ESC/POS code page, so braille art sent as
+text prints as question marks — the charset filter refuses it alongside Korean
+and emoji.
+
+But braille art is not really text. Each character encodes a 2×4 grid of dots,
+so a W×H grid of them *is* a 2W×4H bitmap in disguise. A message containing
+braille is decoded back into that bitmap, scaled by a whole number of pixels,
+and sent to posprint as an `image` block. Nothing is dithered or approximated:
+the picture that comes out is exactly the one that went in.
+
+Three consequences worth knowing:
+
+- **Art must be on its own.** A caption cannot be drawn as dots, so a message
+  mixing braille with ordinary text is refused rather than half-rendered.
+  Spaces are fine as padding, as is `U+2800`, the blank cell.
+- **`max_chars` does not apply.** It measures the wrong thing once the message
+  is a picture: 500 cells might be 72 wide and 7 tall or 8 wide and 62, and
+  those cost very different amounts of roll. The grid and dot limits apply
+  instead.
+- **Scaling is integer-only.** Stretching to fill the head exactly would make
+  some dots four pixels across and others five, which on a 1-bit image reads as
+  a texture crawling through the picture.
+
+The same decoder is available as a command-line tool for art too big for the
+public limits: `scripts/braille_print.py`, which talks to posprint directly.
+
 ## Configuration
 
 All settings are environment variables, read once at startup from
@@ -198,6 +227,12 @@ All settings are environment variables, read once at startup from
 | `POSPRINTWEB_TITLE` / `_BLURB` | see `config.py` | Page heading and intro text |
 | `POSPRINTWEB_COLUMNS` | `48` | Paper width in characters. 32 for 58mm paper |
 | `POSPRINTWEB_CODEPAGE` | `cp858` | **Must match posprint's `POSPRINT_CODEPAGE`.** Decides which characters are refused instead of printed as `?` |
+| `POSPRINTWEB_BRAILLE` | `true` | Accept braille art and print it as a decoded bitmap |
+| `POSPRINTWEB_BRAILLE_MAX_COLS` | `72` | Art width in cells. 72 cells = 144 dots, so scale 4 fills an 80mm head |
+| `POSPRINTWEB_BRAILLE_MAX_ROWS` | `40` | Art height in cells |
+| `POSPRINTWEB_BRAILLE_MAX_SCALE` | `8` | Stops a tiny drawing being blown up to fill the roll |
+| `POSPRINTWEB_BRAILLE_MAX_DOTS` | `640` | Paper budget for one picture, ~80mm at 203dpi |
+| `POSPRINTWEB_PRINTER_DOTS` | `576` | Match posprint's `POSPRINT_DOTS`; 384 for 58mm paper |
 | `POSPRINTWEB_COOLDOWN_SECONDS` | `60` | Minimum gap between prints from one IP |
 | `POSPRINTWEB_PER_IP_DAILY` | `5` | Per-IP daily cap. `0` disables |
 | `POSPRINTWEB_GLOBAL_DAILY` | `200` | Paper budget for everyone combined. `0` disables |

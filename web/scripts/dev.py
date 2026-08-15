@@ -18,6 +18,16 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# The fake printer echoes messages to this console, and messages contain
+# whatever a visitor typed: accents, braille art, box drawing. A Windows
+# terminal defaults to cp1252 and raises UnicodeEncodeError on all of it,
+# turning a harmless echo into a 500 from the dev server.
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # pragma: no cover - not a real tty
+        pass
+
 FAKE = "--fake" in sys.argv
 
 os.environ.setdefault("POSPRINTWEB_DB", str(ROOT / "dev-prints.db"))
@@ -43,13 +53,20 @@ if FAKE:
             pass
 
         async def health(self):
-            return {"ok": True, "device_present": True, "paper": 80}
+            return {"ok": True, "state": "ready", "device_present": True, "paper": 80}
 
-        async def print_message(self, *, message, name, columns, when, note=""):
+        async def print_message(self, *, message, name, columns, when, note="",
+                                image_png=None):
             bar = "=" * columns
             print(f"\n{bar}\n{'INCOMING'.center(columns)}")
             print(f"{when.strftime('%Y-%m-%d %H:%M').center(columns)}\n{bar}")
-            print(message)
+            if image_png is not None:
+                # Braille art travels as a decoded bitmap. Show the shape of
+                # what would print rather than dumping PNG bytes to a terminal.
+                print(f"[image: {len(image_png)} bytes of PNG]")
+                print(message)
+            else:
+                print(message)
             print("-" * columns)
             print(f"from: {name or 'someone on the internet'}".rjust(columns))
             print(f"{bar}\n")

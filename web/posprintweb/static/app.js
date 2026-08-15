@@ -27,6 +27,44 @@ let printerBlocked = false;
 // Filled from /api/status. Until it arrives the preview shows text verbatim,
 // which is the pre-existing behaviour and no worse than before.
 let charset = null;
+let brailleCfg = null;
+// Braille art that mixes in ordinary text cannot be drawn, so the send is
+// blocked for a reason that has nothing to do with the code page.
+let mixedArt = false;
+
+/* -- braille art --------------------------------------------------------- */
+
+const BRAILLE = /[⠀-⣿]/;
+const BRAILLE_OR_SPACE = /[⠀-⣿\s]/;
+
+// Mirrors braille.py exactly - same detection, same trimming, same integer
+// scale - so the estimate shown here is what the server actually does. If one
+// side changes, change both.
+function scaleFor(cols, rows) {
+  let scale = Math.min(Math.floor(brailleCfg.printer_dots / (cols * 2)),
+                       brailleCfg.max_scale);
+  if (rows * 4 * scale > brailleCfg.max_dots) {
+    scale = Math.floor(brailleCfg.max_dots / (rows * 4));
+  }
+  return Math.max(1, scale);
+}
+
+function brailleArt(text) {
+  if (!brailleCfg || !brailleCfg.enabled || !BRAILLE.test(text)) return null;
+
+  const stray = [...new Set([...text].filter((c) => !BRAILLE_OR_SPACE.test(c)))];
+  const lines = text.split("\n");
+  // U+2800 is a blank braille cell, not whitespace, so a padded line counts as
+  // content here and in Python alike.
+  while (lines.length && !lines[0].trim()) lines.shift();
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  if (!lines.length) return null;
+
+  const rows = lines.length;
+  const cols = Math.max(...lines.map((l) => l.length));
+  const scale = scaleFor(cols, rows);
+  return { stray, rows, cols, scale, mm: (rows * 4 * scale) / 203 * 25.4 };
+}
 
 /* -- what the printer can actually render -------------------------------- */
 
@@ -133,30 +171,61 @@ function renderPreview() {
   // Preview what the printer will produce, not what the browser can display.
   // A browser has a font for every script; the printer has one code page, and
   // showing the raw text here would promise something the paper cannot keep.
-  const message = toPaper(typed);
+  // Braille is the one thing with no glyphs that still prints perfectly: the
+  // server decodes it back into the bitmap it encodes and sends it as an
+  // image. So it must skip the charset check that refuses Korean and emoji,
+  // and it must not be wrapped - the art's width is the picture.
+  const art = brailleArt(typed);
+  const message = art ? { text: typed, bad: [] } : toPaper(typed);
   const sender = toPaper(from);
   unprintable = [...new Set([...message.bad, ...sender.bad])];
 
   const body = message.text.trim() ? message.text : "…";
   const who = sender.text || "someone on the internet";
 
+  // Art is never wrapped: its width *is* the picture, and the server scales
+  // the whole bitmap to the head rather than breaking lines.
+  const rendered = art ? body.split("\n").map(esc) : wrap(body, cols).map(esc);
+
   const parts = [
     pad("INCOMING", cols, 2) + `<span class="dbl">INCOMING</span>`,
     esc(centre(stamp(), cols)),
     "=".repeat(cols),
-    ...wrap(body, cols).map(esc),
+    ...rendered,
     "-".repeat(cols),
     esc(rightAlign(`from: ${who}`, cols)),
     "",
   ];
   el.paper.innerHTML = parts.join("\n");
-  showCharsetWarning();
+  updateNotices(art);
 }
 
-// The server refuses these outright, so say so before the send rather than
-// spending the visitor's cooldown on a rejection.
-function showCharsetWarning() {
-  if (unprintable.length) {
+// Say what the server will say, before the send, rather than spending the
+// visitor's cooldown on a rejection they could have seen coming.
+function updateNotices(art) {
+  mixedArt = false;
+
+  if (art && art.stray.length) {
+    mixedArt = true;
+    showError(
+      `Braille art prints as a picture, so it has to be on its own - text ` +
+      `cannot be drawn into it. Remove: ${art.stray.slice(0, 6).join(" ")}`
+    );
+    el.error.dataset.reason = "charset";
+  } else if (art && art.cols > brailleCfg.max_cols) {
+    mixedArt = true;
+    showError(`That art is ${art.cols} characters wide; the limit is ` +
+              `${brailleCfg.max_cols}.`);
+    el.error.dataset.reason = "charset";
+  } else if (art && art.rows > brailleCfg.max_rows) {
+    mixedArt = true;
+    showError(`That art is ${art.rows} lines tall; the limit is ` +
+              `${brailleCfg.max_rows}.`);
+    el.error.dataset.reason = "charset";
+  } else if (art) {
+    showNote(`This prints as a picture: ${art.cols}×${art.rows} cells at ` +
+             `${art.scale}×, about ${Math.round(art.mm)}mm of paper.`);
+  } else if (unprintable.length) {
     const shown = unprintable.slice(0, 6).join(" ");
     const more = unprintable.length > 6 ? ` (and ${unprintable.length - 6} more)` : "";
     showError(
@@ -173,7 +242,10 @@ function showCharsetWarning() {
 function updateCount() {
   const n = [...el.message.value].length;
   el.count.textContent = n;
-  el.count.parentElement.classList.toggle("over", n > limits.max_chars);
+  // max_chars measures text. Braille art is bounded by its grid instead, so
+  // flagging it here would show a limit that does not apply to it.
+  const art = brailleArt(el.message.value);
+  el.count.parentElement.classList.toggle("over", !art && n > limits.max_chars);
 }
 
 /* -- status -------------------------------------------------------------- */
@@ -187,6 +259,7 @@ function showError(msg, ok = false) {
   el.error.hidden = false;
   el.error.textContent = msg;
   el.error.classList.toggle("error--ok", ok);
+  el.error.classList.remove("error--info");
   // Tagged so the live charset warning knows which messages are its own to
   // withdraw, and does not wipe a print result the visitor is still reading.
   delete el.error.dataset.reason;
@@ -197,11 +270,20 @@ function clearError() {
   delete el.error.dataset.reason;
 }
 
+// Neutral, not a failure: the message is fine and this says what will happen.
+function showNote(msg) {
+  el.error.hidden = false;
+  el.error.textContent = msg;
+  el.error.classList.remove("error--ok");
+  el.error.classList.add("error--info");
+  el.error.dataset.reason = "charset";
+}
+
 function syncSubmit() {
   // A cooldown owns the button's label as well as its state, so it is left to
   // startCooldown's ticker rather than being fought over here.
   if (cooldownUntil > Date.now()) return;
-  el.submit.disabled = printerBlocked || unprintable.length > 0;
+  el.submit.disabled = printerBlocked || unprintable.length > 0 || mixedArt;
 }
 
 function startCooldown(seconds) {
@@ -236,10 +318,17 @@ async function refreshStatus() {
         replacements: s.charset.replacements,
       };
     }
+    if (s.braille) brailleCfg = s.braille;
     el.title.textContent = s.title;
     document.title = s.title;
     el.blurb.textContent = s.blurb;
-    el.message.maxLength = limits.max_chars;
+    // maxLength has to clear the largest *braille* message, not the largest
+    // text one, or art cannot even be pasted into the box. Text over max_chars
+    // still turns the counter red and is refused server-side.
+    el.message.maxLength = brailleCfg && brailleCfg.enabled
+      ? Math.max(limits.max_chars,
+                 brailleCfg.max_cols * brailleCfg.max_rows + brailleCfg.max_rows)
+      : limits.max_chars;
     el.name.maxLength = limits.max_name_chars;
     el.max.textContent = limits.max_chars;
 

@@ -28,8 +28,16 @@ try:
 except ImportError:  # pragma: no cover - Python < 3.9
     ZoneInfo = None  # type: ignore[assignment]
 
+from . import braille
 from .config import Config
-from .filters import FALLBACK, Rejected, check_message, check_name, printable_charset
+from .filters import (
+    FALLBACK,
+    Rejected,
+    check_message,
+    check_name,
+    clean,
+    printable_charset,
+)
 from .models import PrintMessage
 from .store import QuotaExceeded, Store
 from .upstream import Upstream, UpstreamError
@@ -192,6 +200,16 @@ async def status(request: Request) -> dict:
         # the page so the preview cannot drift from what actually prints when
         # the code page changes.
         "charset": {"printable": CHARSET, "replacements": FALLBACK},
+        # Braille is the exception to the charset: it has no glyphs but is
+        # printed as a decoded picture, so the page must not refuse it.
+        "braille": {
+            "enabled": cfg.braille_enabled,
+            "max_cols": cfg.braille_max_cols,
+            "max_rows": cfg.braille_max_rows,
+            "max_scale": cfg.braille_max_scale,
+            "max_dots": cfg.braille_max_dots,
+            "printer_dots": cfg.printer_dots,
+        },
         "you": {
             "used_today": counts["used_today"],
             "remaining_today": max(0, cfg.per_ip_daily - counts["used_today"]),
@@ -219,14 +237,30 @@ async def print_message(
             ),
         )
 
+    art = None
     try:
-        message = check_message(
-            req.message,
-            max_chars=cfg.max_chars,
-            max_lines=cfg.max_lines,
-            blocklist=cfg.blocklist,
-            codepage=cfg.codepage,
-        )
+        # Braille is routed away from the text checks entirely. It would fail
+        # every one of them - no glyphs in the code page, far past max_chars -
+        # yet it is the one thing the printer can reproduce perfectly, as a
+        # decoded bitmap. Its limits are a grid, not a character count.
+        if cfg.braille_enabled and braille.contains(req.message):
+            art = braille.prepare(
+                clean(req.message),
+                max_cols=cfg.braille_max_cols,
+                max_rows=cfg.braille_max_rows,
+                printer_dots=cfg.printer_dots,
+                max_scale=cfg.braille_max_scale,
+                max_dots=cfg.braille_max_dots,
+            )
+            message = art.text
+        else:
+            message = check_message(
+                req.message,
+                max_chars=cfg.max_chars,
+                max_lines=cfg.max_lines,
+                blocklist=cfg.blocklist,
+                codepage=cfg.codepage,
+            )
         name = check_name(
             req.name,
             max_chars=cfg.max_name_chars,
@@ -259,7 +293,11 @@ async def print_message(
 
     try:
         result = await upstream.print_message(
-            message=message, name=name, columns=cfg.columns, when=now_local()
+            message=message,
+            name=name,
+            columns=cfg.columns,
+            when=now_local(),
+            image_png=art.png if art else None,
         )
     except UpstreamError as exc:
         # The visitor did nothing wrong, so give the quota back.

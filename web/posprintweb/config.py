@@ -72,6 +72,19 @@ class Config:
     # the paper cannot deliver.
     codepage: str = "cp858"
 
+    # -- braille art ------------------------------------------------------
+    # Braille characters are printed as a decoded bitmap rather than as text,
+    # because the printer has no glyphs for them. That needs its own limits:
+    # max_chars measures the wrong thing entirely once the message is a
+    # picture, since 500 cells might be 72 wide and 7 tall or 8 wide and 62,
+    # and those cost very different amounts of roll.
+    braille_enabled: bool = True
+    braille_max_cols: int = 72     # 72*2=144 dots, so scale 4 fills an 80mm head
+    braille_max_rows: int = 40
+    braille_max_scale: int = 8     # keeps small drawings from filling the roll
+    braille_max_dots: int = 640    # ~80mm: the paper budget for one picture
+    printer_dots: int = 576        # match posprint's POSPRINT_DOTS (384 for 58mm)
+
     # -- abuse controls ---------------------------------------------------
     # A public endpoint that consumes a physical, finite resource. All three
     # limits are load-bearing; see README "Threat model".
@@ -142,6 +155,12 @@ class Config:
             site_blurb=os.environ.get("POSPRINTWEB_BLURB", cls.site_blurb),
             columns=_env_int("POSPRINTWEB_COLUMNS", 48),
             codepage=_env_codepage("POSPRINTWEB_CODEPAGE", "cp858"),
+            braille_enabled=_env_bool("POSPRINTWEB_BRAILLE", True),
+            braille_max_cols=_env_int("POSPRINTWEB_BRAILLE_MAX_COLS", 72),
+            braille_max_rows=_env_int("POSPRINTWEB_BRAILLE_MAX_ROWS", 40),
+            braille_max_scale=_env_int("POSPRINTWEB_BRAILLE_MAX_SCALE", 8),
+            braille_max_dots=_env_int("POSPRINTWEB_BRAILLE_MAX_DOTS", 640),
+            printer_dots=_env_int("POSPRINTWEB_PRINTER_DOTS", 576),
             cooldown_seconds=_env_int("POSPRINTWEB_COOLDOWN_SECONDS", 60),
             per_ip_daily=_env_int("POSPRINTWEB_PER_IP_DAILY", 5),
             global_daily=_env_int("POSPRINTWEB_GLOBAL_DAILY", 200),
