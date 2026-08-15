@@ -70,8 +70,8 @@ python web/scripts/dev.py --fake                 # http://127.0.0.1:8000
 on the page without hardware. Drop it to talk to a real posprint on `:8080`.
 
 ```bash
-pytest -q      # 116 tests: both services
-pytest web -q  # 61: just this one
+pytest -q      # 152 tests: both services
+pytest web -q  # 93: just this one
 ```
 
 No `PYTHONPATH` needed — the root `pyproject.toml` puts both package roots on
@@ -223,6 +223,7 @@ All settings are environment variables, read once at startup from
 | --- | --- | --- |
 | `POSPRINTWEB_UPSTREAM` | `http://127.0.0.1:8080` | Base URL of the posprint service |
 | `POSPRINTWEB_UPSTREAM_KEY` | *(empty)* | posprint's `POSPRINT_API_KEY`. Required in practice |
+| `POSPRINTWEB_UPSTREAM_TIMEOUT` | `30` | Seconds to wait on posprint |
 | `POSPRINTWEB_HOST` / `_PORT` | `0.0.0.0` / `8000` | `install.sh` writes `127.0.0.1`; keep it there and tunnel in |
 | `POSPRINTWEB_TITLE` / `_BLURB` | see `config.py` | Page heading and intro text |
 | `POSPRINTWEB_COLUMNS` | `48` | Paper width in characters. 32 for 58mm paper |
@@ -238,6 +239,7 @@ All settings are environment variables, read once at startup from
 | `POSPRINTWEB_GLOBAL_DAILY` | `200` | Paper budget for everyone combined. `0` disables |
 | `POSPRINTWEB_MAX_CHARS` | `500` | ~8cm of 80mm paper |
 | `POSPRINTWEB_MAX_LINES` | `20` | |
+| `POSPRINTWEB_MAX_NAME_CHARS` | `32` | Length of the optional sender name |
 | `POSPRINTWEB_QUIET_START` / `_END` | `22` / `8` | Local hours. Set both equal to disable |
 | `POSPRINTWEB_TZ` | `Europe/Berlin` | Timezone for quiet hours and daily rollover |
 | `POSPRINTWEB_BLOCKLIST` | *(empty)* | Path to a newline-separated wordlist |
@@ -260,8 +262,18 @@ All settings are environment variables, read once at startup from
 
 `POST /api/print` returns `200` printed, `422` rejected input, `429` rate
 limited (with `Retry-After`), `502` the printer failed, `503` switched off or
-quiet hours. A `502` refunds the quota — an offline printer is not the
-visitor's fault.
+quiet hours. A `502` refunds the quota — an empty roll is not the visitor's
+fault.
+
+`GET /api/status` carries everything the page needs to render itself honestly:
+
+| Field | Why the page needs it |
+| --- | --- |
+| `printer_state` | `ready` / `out_of_paper` / `offline`. `online` is kept for anything already reading it, but says only *whether*, not *which* |
+| `charset.printable` | Every character the code page can express, derived from the codec. The preview shows what the paper will say rather than what the browser can display |
+| `charset.replacements` | The degradations posprint applies — `—` → `-`, `…` → `...` |
+| `braille` | Grid and scale limits, so the page can estimate paper cost and knows not to refuse braille as unprintable |
+| `limits`, `you`, `printed_today` | Caps, remaining quota, global count |
 
 ## Operating it
 

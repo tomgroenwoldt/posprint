@@ -16,12 +16,13 @@ curl -X POST http://10.0.0.50:8080/print/text \
 | Path | What it is |
 | --- | --- |
 | `posprint/`, `tests/`, `deploy/` | This service. Talks to the USB printer. **LAN only** — the API key it uses unlocks raw ESC/POS and the cash drawer, so it must never be exposed to the internet. |
+| `scripts/` | Standalone tools that talk to the API. `braille_print.py` decodes Unicode braille art back into the bitmap it encodes and prints it as graphics — the printer has no glyphs for `U+2800`–`U+28FF`. |
 | [`web/`](web/README.md) | `posprint-web`, an optional public page that lets strangers print a short message. It proxies to this service so that key stays server-side. |
 
 They deploy to separate containers with separate installers. You do not need
 `web/` to use the printer; skip it entirely if the LAN API is all you want.
 
-`pytest` from this directory runs both suites (116 tests).
+`pytest` from this directory runs both suites (152 tests).
 
 ---
 
@@ -272,11 +273,36 @@ An explicit `cut` block suppresses the automatic one, so you get exactly one cut
 | `POST /print/raw` | base64 ESC/POS passthrough |
 | `POST /print/test` | self-test page |
 | `POST /drawer` | kick the cash drawer |
-| `GET /health` | unauthenticated; device presence, paper/error bits, queue depth |
-| `GET /jobs` `GET /jobs/{id}` | recent job history |
+| `GET /health` | unauthenticated; `state`, device presence, paper/error bits, queue depth |
+| `GET /jobs` `GET /jobs/{id}` | recent job history, including a `reason` on failures |
 
 Every print endpoint accepts `wait` (default `true`) and `timeout` (seconds).
 Set `"wait": false` for fire-and-forget.
+
+### Printer state
+
+`GET /health` reports one authoritative `state`, and returns 200 only for
+`ready`:
+
+| `state` | Meaning | HTTP |
+|---|---|---|
+| `ready` | Will print, as far as can be known in advance | 200 |
+| `out_of_paper` | Device is fine, the roll is empty | 503 |
+| `offline` | No device node: unplugged, powered off, no permission | 503 |
+
+The distinction is load-bearing rather than cosmetic. **A thermal printer with
+no paper still accepts bytes over USB** — the write succeeds, the data lands in
+the printer's buffer, and nothing reaches paper. Without an explicit check every
+job reports success and silently produces nothing. So the spooler reads the
+status byte before each job and fails it with `reason: "out_of_paper"` instead.
+
+Printers that do not implement `LPGETSTATUS` report paper as unknown rather
+than empty, and are assumed willing — refusing to print at all would be the
+worse failure.
+
+A failed job carries both a human `error` and a stable `reason`
+(`out_of_paper`, `offline`, `write_failed`, `error`) so callers can branch
+without parsing prose.
 
 ---
 
@@ -296,11 +322,21 @@ rest_command:
 ```
 
 ```yaml
-action:
-  - service: rest_command.print_receipt
+actions:
+  - action: rest_command.print_receipt
     data:
       message: "Doorbell rang at {{ now().strftime('%H:%M') }}"
 ```
+
+`rest_command` has no config flow, so this is one of the few things that really
+does belong in `configuration.yaml`. Reload with `rest_command.reload` rather
+than restarting.
+
+Printing **through** posprint rather than driving the USB device from Home
+Assistant directly is worth the extra hop: only one process can hold
+`/dev/usb/lp0`, and posprint's spooler is what stops two jobs interleaving into
+one garbled receipt. It also means the paper and offline states above are
+visible to your automations.
 
 ---
 
