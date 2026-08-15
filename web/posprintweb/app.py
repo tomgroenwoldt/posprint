@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 try:
@@ -334,11 +334,38 @@ async def admin_log(limit: int = 50) -> dict:
     return {"prints": store.recent(limit)}
 
 
+def _versioned_index() -> str:
+    """index.html with a build stamp on each asset URL.
+
+    no-cache on /static makes a deploy reach people after one revalidation, but
+    a visitor whose browser cached an asset *before* that header existed is
+    still holding it under heuristic freshness - roughly a tenth of the file's
+    age when they fetched it - and there is no way to reach into their cache
+    and say otherwise.
+
+    Changing the URL sidesteps the question. The page itself is no-store, so it
+    is always fetched fresh, and a new asset URL is by definition not in
+    anyone's cache. That closes the gap for people already stuck, and means
+    future deploys land instantly instead of after a revalidation.
+    """
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    stamp = max(int(p.stat().st_mtime) for p in STATIC.glob("*.*"))
+    for asset in ("app.js", "style.css"):
+        html = html.replace(f"/static/{asset}", f"/static/{asset}?v={stamp}")
+    return html
+
+
+# Built once at import: the files cannot change under a running service, since
+# install.sh restarts it.
+INDEX_HTML = _versioned_index()
+
+
 @app.get("/", include_in_schema=False)
-async def index() -> FileResponse:
+async def index() -> HTMLResponse:
     # no-store: the page embeds nothing per-visitor, but a stale copy after a
-    # limit change is confusing, and this is not a high-traffic site.
-    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
+    # limit change is confusing, and this is not a high-traffic site. It is
+    # also what makes the asset stamping above work.
+    return HTMLResponse(INDEX_HTML, headers={"Cache-Control": "no-store"})
 
 
 class RevalidatingStatic(StaticFiles):

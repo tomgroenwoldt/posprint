@@ -157,6 +157,19 @@ def test_extra_fields_are_ignored(client, fake):
     assert len(fake.jobs) == 1
 
 
+def test_asset_urls_carry_a_build_stamp(client):
+    """A changed URL is the only thing that reaches an already-poisoned cache.
+
+    no-cache fixes future deploys, but only after one revalidation, and a
+    browser holding an asset from before that header existed will sit on it for
+    a heuristic interval nobody can shorten.
+    """
+    html = client.get("/").text
+    assert "/static/app.js?v=" in html
+    assert "/static/style.css?v=" in html
+    assert client.get("/").headers["cache-control"] == "no-store"
+
+
 def test_static_assets_must_be_revalidated(client):
     """A deploy has to actually reach people.
 
