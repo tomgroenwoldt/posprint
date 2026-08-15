@@ -9,6 +9,7 @@ const el = {
   blurb: $("blurb"), quota: $("quota"), error: $("error"),
   counterLine: $("counter-line"),
   camera: $("camera"), cameraImg: $("camera-img"), cameraNote: $("camera-note"),
+  cameraFrame: $("camera-frame"),
 };
 
 let limits = { max_chars: 500, max_lines: 20, columns: 48, cooldown_seconds: 60,
@@ -265,36 +266,62 @@ function updateCount() {
 // and left alone. Re-assigning src on every status poll would tear down the
 // stream and reconnect twice a minute for no reason.
 let cameraAttached = false;
+let cameraRetry = null;
+let cameraFailures = 0;
+
+function attachCamera() {
+  clearTimeout(cameraRetry);
+  cameraRetry = null;
+  el.cameraImg.src = "/api/camera.mjpg?t=" + Date.now();
+  cameraAttached = true;
+}
+
+function detachCamera() {
+  clearTimeout(cameraRetry);
+  cameraRetry = null;
+  // Dropping src closes the connection. Without this the server keeps
+  // streaming to an element nobody is looking at, and counts a viewer that has
+  // already left against the cap.
+  el.cameraImg.removeAttribute("src");
+  cameraAttached = false;
+  // Reset, so reappearing later does not start with a stale complaint.
+  cameraFailures = 0;
+  el.cameraFrame.hidden = false;
+  el.cameraNote.textContent = "";
+}
 
 function updateCamera(state) {
   const live = !!(state && state.live);
   el.camera.hidden = !live;
-
-  if (!live) {
-    if (cameraAttached) {
-      // Dropping src closes the connection; without this the server keeps
-      // streaming to a hidden element and counts a viewer that left.
-      el.cameraImg.removeAttribute("src");
-      cameraAttached = false;
-    }
-    return;
-  }
-  if (cameraAttached) return;
-
-  el.cameraImg.src = "/api/camera.mjpg?t=" + Date.now();
-  cameraAttached = true;
-  el.cameraNote.textContent = state.mode === "after_print"
-    ? "Live for a minute or so after each print."
-    : "Live.";
-
-  el.cameraImg.onerror = () => {
-    // Usually the viewer cap, sometimes ffmpeg dying. Fall back to a still so
-    // the section shows something rather than a broken-image icon.
-    cameraAttached = false;
-    el.cameraImg.src = "/api/camera.jpg?t=" + Date.now();
-    el.cameraNote.textContent = "The live view is busy — showing a snapshot.";
-  };
+  if (!live) { detachCamera(); return; }
+  // A pending retry owns reattachment. Without this check the status poll
+  // would jump the queue every 60s and the backoff would never be honoured.
+  if (!cameraAttached && cameraRetry === null) attachCamera();
 }
+
+// A picture that is working needs no caption saying so. The note is only for
+// when there is nothing to look at.
+el.cameraImg.addEventListener("load", () => {
+  cameraFailures = 0;
+  el.cameraFrame.hidden = false;
+  el.cameraNote.textContent = "";
+});
+
+el.cameraImg.addEventListener("error", () => {
+  cameraAttached = false;
+  el.cameraFrame.hidden = true;
+  el.cameraNote.textContent = cameraFailures
+    ? "Still can't reach the camera."
+    : "The camera is unreachable right now.";
+
+  // Back off rather than hammering a camera that is already not answering.
+  cameraFailures += 1;
+  const delay = Math.min(30000, 2000 * 2 ** (cameraFailures - 1));
+  cameraRetry = setTimeout(() => {
+    cameraRetry = null;
+    if (!el.camera.hidden) attachCamera();
+  }, delay);
+});
 
 /* -- status -------------------------------------------------------------- */
 
