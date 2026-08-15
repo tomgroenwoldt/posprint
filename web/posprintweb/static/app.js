@@ -31,6 +31,10 @@ let brailleCfg = null;
 // Braille art that mixes in ordinary text cannot be drawn, so the send is
 // blocked for a reason that has nothing to do with the code page.
 let mixedArt = false;
+// The textarea's maxLength has to clear the largest braille message, which is
+// far past max_chars, so it can no longer be the guardrail for ordinary text.
+// This is.
+let tooLong = false;
 
 /* -- braille art --------------------------------------------------------- */
 
@@ -197,6 +201,8 @@ function renderPreview() {
     "",
   ];
   el.paper.innerHTML = parts.join("\n");
+  // Counted on the cleaned text, which is what check_message() measures.
+  tooLong = !art && [...typed].length > limits.max_chars;
   updateNotices(art);
 }
 
@@ -225,6 +231,10 @@ function updateNotices(art) {
   } else if (art) {
     showNote(`This prints as a picture: ${art.cols}×${art.rows} cells at ` +
              `${art.scale}×, about ${Math.round(art.mm)}mm of paper.`);
+  } else if (tooLong) {
+    showError(`Too long: ${[...el.message.value].length} characters, the ` +
+              `limit is ${limits.max_chars}.`);
+    el.error.dataset.reason = "charset";
   } else if (unprintable.length) {
     const shown = unprintable.slice(0, 6).join(" ");
     const more = unprintable.length > 6 ? ` (and ${unprintable.length - 6} more)` : "";
@@ -283,7 +293,7 @@ function syncSubmit() {
   // A cooldown owns the button's label as well as its state, so it is left to
   // startCooldown's ticker rather than being fought over here.
   if (cooldownUntil > Date.now()) return;
-  el.submit.disabled = printerBlocked || unprintable.length > 0 || mixedArt;
+  el.submit.disabled = printerBlocked || unprintable.length > 0 || mixedArt || tooLong;
 }
 
 function startCooldown(seconds) {
