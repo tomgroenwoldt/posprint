@@ -54,6 +54,27 @@ class Camera:
         self._proc: asyncio.subprocess.Process | None = None
         self._reader: asyncio.Task | None = None
         self._idler: asyncio.Task | None = None
+        self._draining: asyncio.Task | None = None
+        # ffmpeg explains itself on stderr and then exits. Reading that only
+        # after stdout closes loses the race against the request that is
+        # waiting to report why there is no picture, so it is drained
+        # continuously from the moment the process starts.
+        self._stderr_tail: list[str] = []
+        # A wrong RTSP URL fails in about 200ms, so without a cooldown every
+        # page load spawns another doomed ffmpeg against the camera.
+        self._failed_at: float = 0.0
+        self._retry_after: float = 5.0
+
+        # ffmpeg's URL parser splits userinfo from host on the FIRST '@', so a
+        # username or password containing one silently redirects the whole
+        # connection at a host that does not exist. The resulting error talks
+        # about DNS, which sends you looking anywhere but at your credentials.
+        if rtsp_url.count("@") > 1:
+            log.warning(
+                "POSPRINTWEB_CAMERA_URL contains more than one '@'. If it is in "
+                "the username or password it must be percent-encoded as %%40, "
+                "or ffmpeg will treat part of the credentials as the hostname."
+            )
         self._frame: bytes | None = None
         self._frame_at: float = 0.0
         self._last_request: float = 0.0
@@ -141,6 +162,8 @@ class Camera:
     async def _ensure_running(self) -> None:
         if self._proc is not None and self._proc.returncode is None:
             return
+        if time.monotonic() - self._failed_at < self._retry_after:
+            return                          # still cooling off from a failure
         async with self._lock:
             if self._proc is not None and self._proc.returncode is None:
                 return
@@ -154,6 +177,24 @@ class Camera:
             if self._proc is None or self._proc.returncode is not None:
                 break
             await asyncio.sleep(0.2)
+
+        if self._frame is None:
+            await self._note_failure()
+
+    async def _note_failure(self) -> None:
+        """Turn a dead ffmpeg into something readable in the journal."""
+        self._failed_at = time.monotonic()
+        code = self._proc.returncode if self._proc is not None else None
+
+        # Give the drain a moment to catch what ffmpeg said on its way out.
+        for _ in range(10):
+            if self._stderr_tail:
+                break
+            await asyncio.sleep(0.05)
+
+        detail = " / ".join(self._stderr_tail[-3:]) or "no output from ffmpeg"
+        self.last_error = f"ffmpeg exited ({code}): {detail}"[:400]
+        log.error("camera failed: %s", self.last_error)
 
     async def _spawn(self) -> None:
         # -rtsp_transport tcp: UDP drops frames on wifi and ffmpeg then spends
@@ -195,15 +236,36 @@ class Camera:
             return
 
         self.last_error = None
+        self._stderr_tail.clear()
         self._reader = asyncio.create_task(self._read_frames())
         self._idler = asyncio.create_task(self._idle_watch())
+        self._draining = asyncio.create_task(self._drain_stderr())
         log.info("camera capture started")
 
+    async def _drain_stderr(self) -> None:
+        """Keep the last few lines ffmpeg complained about, as it complains."""
+        proc = self._proc
+        if proc is None or proc.stderr is None:
+            return
+        try:
+            while True:
+                line = await proc.stderr.readline()
+                if not line:
+                    return
+                text = line.decode("utf-8", "replace").strip()
+                if text:
+                    self._stderr_tail.append(text)
+                    del self._stderr_tail[:-5]
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - diagnostics must not take the app down
+            return
+
     async def _teardown(self) -> None:
-        for task in (self._reader, self._idler):
+        for task in (self._reader, self._idler, self._draining):
             if task is not None:
                 task.cancel()
-        self._reader = self._idler = None
+        self._reader = self._idler = self._draining = None
 
         proc, self._proc = self._proc, None
         if proc is not None and proc.returncode is None:
