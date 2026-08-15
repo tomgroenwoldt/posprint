@@ -8,6 +8,7 @@ const el = {
   paper: $("paper"), status: $("status"), title: $("title"),
   blurb: $("blurb"), quota: $("quota"), error: $("error"),
   counterLine: $("counter-line"),
+  camera: $("camera"), cameraImg: $("camera-img"), cameraNote: $("camera-note"),
 };
 
 let limits = { max_chars: 500, max_lines: 20, columns: 48, cooldown_seconds: 60,
@@ -258,6 +259,43 @@ function updateCount() {
   el.count.parentElement.classList.toggle("over", !art && n > limits.max_chars);
 }
 
+/* -- live camera --------------------------------------------------------- */
+
+// The <img> holds one long-lived multipart connection, so it is attached once
+// and left alone. Re-assigning src on every status poll would tear down the
+// stream and reconnect twice a minute for no reason.
+let cameraAttached = false;
+
+function updateCamera(state) {
+  const live = !!(state && state.live);
+  el.camera.hidden = !live;
+
+  if (!live) {
+    if (cameraAttached) {
+      // Dropping src closes the connection; without this the server keeps
+      // streaming to a hidden element and counts a viewer that left.
+      el.cameraImg.removeAttribute("src");
+      cameraAttached = false;
+    }
+    return;
+  }
+  if (cameraAttached) return;
+
+  el.cameraImg.src = "/api/camera.mjpg?t=" + Date.now();
+  cameraAttached = true;
+  el.cameraNote.textContent = state.mode === "after_print"
+    ? "Live for a minute or so after each print."
+    : "Live.";
+
+  el.cameraImg.onerror = () => {
+    // Usually the viewer cap, sometimes ffmpeg dying. Fall back to a still so
+    // the section shows something rather than a broken-image icon.
+    cameraAttached = false;
+    el.cameraImg.src = "/api/camera.jpg?t=" + Date.now();
+    el.cameraNote.textContent = "The live view is busy — showing a snapshot.";
+  };
+}
+
 /* -- status -------------------------------------------------------------- */
 
 function setStatus(cls, text) {
@@ -329,6 +367,7 @@ async function refreshStatus() {
       };
     }
     if (s.braille) brailleCfg = s.braille;
+    updateCamera(s.camera);
     el.title.textContent = s.title;
     document.title = s.title;
     el.blurb.textContent = s.blurb;

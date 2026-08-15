@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 try:
@@ -29,6 +30,7 @@ except ImportError:  # pragma: no cover - Python < 3.9
     ZoneInfo = None  # type: ignore[assignment]
 
 from . import braille
+from .camera import Camera
 from .config import Config
 from .filters import (
     FALLBACK,
@@ -66,6 +68,18 @@ TZ = _tz()
 CHARSET = printable_charset(cfg.codepage)
 store = Store(cfg.db_path, TZ) if TZ else Store(cfg.db_path, datetime.now().astimezone().tzinfo)
 upstream = Upstream(cfg.upstream_url, cfg.upstream_key, cfg.upstream_timeout)
+camera = Camera(
+    cfg.camera_url,
+    fps=cfg.camera_fps,
+    width=cfg.camera_width,
+    quality=cfg.camera_quality,
+    idle_timeout=cfg.camera_idle_timeout,
+)
+
+# Monotonic timestamp of the last successful print, for the after_print window.
+# Deliberately in memory: after a restart the feed is dark until someone prints,
+# which is the safe direction to fail.
+_last_print: float = 0.0
 
 
 @asynccontextmanager
@@ -88,6 +102,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await upstream.stop()
+        await camera.stop()
         # The store is deliberately not closed here. It is a process-lifetime
         # singleton and lifespan can run more than once per process, so closing
         # it on the first shutdown would leave the second startup with a dead
@@ -155,6 +170,24 @@ def killed() -> bool:
     )
 
 
+def camera_live() -> bool:
+    """Whether the feed may be served right now.
+
+    Every gate is checked on each request rather than cached, so the killswitch
+    takes effect on the next frame and not on the next restart.
+    """
+    if cfg.camera_mode == "off" or not camera.configured:
+        return False
+    if cfg.camera_killswitch and os.path.exists(cfg.camera_killswitch):
+        return False
+    if killed():
+        # If printing is switched off, so is the picture of the printer.
+        return False
+    if cfg.camera_mode == "always":
+        return True
+    return (time.monotonic() - _last_print) < cfg.camera_window_seconds
+
+
 def is_admin(key: str | None) -> bool:
     return bool(key) and key in cfg.admin_keys
 
@@ -202,6 +235,7 @@ async def status(request: Request) -> dict:
         "charset": {"printable": CHARSET, "replacements": FALLBACK},
         # Braille is the exception to the charset: it has no glyphs but is
         # printed as a decoded picture, so the page must not refuse it.
+        "camera": {"live": camera_live(), "mode": cfg.camera_mode},
         "braille": {
             "enabled": cfg.braille_enabled,
             "max_cols": cfg.braille_max_cols,
@@ -316,6 +350,11 @@ async def print_message(
     if reservation is not None:
         store.finish(reservation, "printed", result.get("job_id", ""))
 
+    # Opens the after_print camera window. Set even in "always" and "off" mode
+    # so switching modes needs no restart to behave correctly.
+    global _last_print
+    _last_print = time.monotonic()
+
     log.info("printed %d chars for %s (job %s)", len(message), ip, result.get("job_id"))
     counts = store.counts(ip)
     return JSONResponse(
@@ -327,6 +366,59 @@ async def print_message(
         },
         status_code=200,
     )
+
+
+_NO_CACHE = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
+
+
+@app.get("/api/camera.mjpg", include_in_schema=False)
+async def camera_stream() -> StreamingResponse:
+    """The live feed, as multipart/x-mixed-replace.
+
+    An <img> pointed at this renders frames as they arrive over one connection.
+    Polling a still image instead would mean a request per frame - at the
+    camera's native rate, fifteen a second per viewer - to deliver the same
+    pixels with more latency.
+    """
+    if not camera_live():
+        # 404, not 403: whether a camera exists at all is not something a
+        # closed feed should confirm.
+        raise HTTPException(status_code=404, detail="not found")
+    if camera.viewers >= cfg.camera_max_viewers:
+        # The bottleneck is the flat's upstream bandwidth, not the VPS. Better
+        # to turn someone away than to make the feed unwatchable for everyone.
+        raise HTTPException(status_code=503, detail="too many people are watching")
+
+    boundary = "posprintframe"
+
+    async def frames():
+        async for frame in camera.stream():
+            yield (
+                f"--{boundary}\r\nContent-Type: image/jpeg\r\n"
+                f"Content-Length: {len(frame)}\r\n\r\n"
+            ).encode() + frame + b"\r\n"
+
+    return StreamingResponse(
+        frames(),
+        media_type=f"multipart/x-mixed-replace; boundary={boundary}",
+        headers=_NO_CACHE,
+    )
+
+
+@app.get("/api/camera.jpg", include_in_schema=False)
+async def camera_frame() -> Response:
+    """A single JPEG: the poster frame, and a fallback if the stream drops."""
+    if not camera_live():
+        raise HTTPException(status_code=404, detail="not found")
+
+    frame = await camera.frame()
+    if frame is None:
+        # Ours to fix - bad RTSP credentials, missing ffmpeg - so it is logged
+        # in full and described vaguely in public.
+        log.warning("camera produced no frame: %s", camera.last_error)
+        raise HTTPException(status_code=503, detail="the camera is not available")
+
+    return Response(content=frame, media_type="image/jpeg", headers=_NO_CACHE)
 
 
 @app.get("/admin/log", dependencies=[Depends(require_admin)], include_in_schema=False)

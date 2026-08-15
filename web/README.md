@@ -186,6 +186,52 @@ Getting that order wrong is the one mistake with teeth:
 Tailscale Funnel works too and is less setup, but gives you no request-level
 controls of its own.
 
+## Live camera
+
+A camera pointed at the printer, streamed on the page. Same rule as the API
+key: the browser never learns where the camera is. It asks this service for
+`/api/camera.mjpg`; this service holds the RTSP credentials and streams JPEGs
+back. Reading the page source tells a visitor nothing they could point VLC at.
+
+**This is a privacy decision, not a feature flag.** With `CAMERA_MODE=always`
+there is a live view of a room in your home on a URL strangers already have.
+Point the camera at the printer and as little else as possible.
+
+Two things keep the cost bounded:
+
+- **ffmpeg only runs while someone is watching.** A request starts it; an idle
+  timeout stops it. Most of the time nobody is looking and nothing is reading
+  from the camera at all.
+- **One decode feeds everyone.** Frames are shared, so ten viewers cost the
+  camera and your uplink the same as one. What scales per viewer is bytes
+  leaving the VPS, which is what `CAMERA_MAX_VIEWERS` caps.
+
+That cap matters more than it looks. At 640×360, 15fps and `-q:v 6` a viewer is
+roughly 3 Mbit/s, and a domestic upload link runs out long before a Hetzner
+CAX11 does. Six viewers is about 18 Mbit/s leaving the flat. Lower
+`CAMERA_FPS`, `CAMERA_WIDTH` or `CAMERA_QUALITY` if that hurts.
+
+### Tapo TC70
+
+Enable **Advanced Settings → Camera Account** in the Tapo app first; that
+username and password are separate from your TP-Link login. Then:
+
+```
+rtsp://<user>:<pass>@<camera-ip>:554/stream2    # 360p, easy on the uplink
+rtsp://<user>:<pass>@<camera-ip>:554/stream1    # 1080p
+```
+
+`stream2` is the right choice here — you are watching a strip of paper appear,
+not reading it.
+
+```bash
+# cut the picture immediately, without stopping printing
+touch /etc/posprintweb-camera.disabled
+```
+
+`ffmpeg` is required and `install.sh` installs it. Nothing else on the page
+depends on it, so a machine without it still prints; the feed just stays dark.
+
 ## Braille art
 
 `U+2800`–`U+28FF` has no glyph in any ESC/POS code page, so braille art sent as
@@ -228,6 +274,15 @@ All settings are environment variables, read once at startup from
 | `POSPRINTWEB_TITLE` / `_BLURB` | see `config.py` | Page heading and intro text |
 | `POSPRINTWEB_COLUMNS` | `48` | Paper width in characters. 32 for 58mm paper |
 | `POSPRINTWEB_CODEPAGE` | `cp858` | **Must match posprint's `POSPRINT_CODEPAGE`.** Decides which characters are refused instead of printed as `?` |
+| `POSPRINTWEB_CAMERA_URL` | *(empty)* | RTSP URL of a camera on the printer. Empty disables the feed. Holds credentials; never reaches a browser |
+| `POSPRINTWEB_CAMERA_MODE` | `always` | `always`, `after_print`, or `off`. **A privacy setting** — read "Live camera" above |
+| `POSPRINTWEB_CAMERA_WINDOW` | `90` | Seconds the feed stays live after a print, in `after_print` mode |
+| `POSPRINTWEB_CAMERA_FPS` | `0` | `0` uses the camera's own rate. Lower it if your uplink suffers |
+| `POSPRINTWEB_CAMERA_WIDTH` | `0` | `0` means no rescaling |
+| `POSPRINTWEB_CAMERA_QUALITY` | `6` | ffmpeg `-q:v`; 2 best, 31 worst |
+| `POSPRINTWEB_CAMERA_MAX_VIEWERS` | `6` | Concurrent streams. Caps bandwidth leaving the flat |
+| `POSPRINTWEB_CAMERA_IDLE` | `15` | Seconds with no viewer before ffmpeg is stopped |
+| `POSPRINTWEB_CAMERA_KILLSWITCH` | `/etc/posprintweb-camera.disabled` | Cuts the picture without stopping printing |
 | `POSPRINTWEB_BRAILLE` | `true` | Accept braille art and print it as a decoded bitmap |
 | `POSPRINTWEB_BRAILLE_MAX_COLS` | `72` | Art width in cells. 72 cells = 144 dots, so scale 4 fills an 80mm head |
 | `POSPRINTWEB_BRAILLE_MAX_ROWS` | `40` | Art height in cells |

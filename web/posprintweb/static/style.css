@@ -67,6 +67,19 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
 .status--pending::before { background: var(--muted); animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity: .25; } }
 
+/* -- live camera -------------------------------------------------------- */
+
+.camera { margin: 1.6rem 0 0; }
+.camera h2 { font-size: .95rem; margin: 0 0 .5rem; }
+.camera__frame {
+  border: 1px solid var(--line); border-radius: .4rem; overflow: hidden;
+  background: #000; line-height: 0;
+}
+/* The stream's dimensions are the camera's, not ours; letting it set its own
+   height avoids a reflow when the first frame lands. */
+.camera__frame img { width: 100%; height: auto; display: block; }
+.camera p { margin: .4rem 0 0; font-size: .82rem; }
+
 /* -- form --------------------------------------------------------------- */
 
 form { display: grid; gap: 1.1rem; }

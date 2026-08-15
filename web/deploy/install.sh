@@ -32,6 +32,18 @@ apt-get update -qq
 apt-get install -y -qq python3 python3-venv python3-dev curl >/dev/null
 note "python3 $(python3 --version 2>&1 | cut -d' ' -f2)"
 
+# Only needed for the live camera feed, which decodes RTSP. Everything else
+# works without it, so a failure here is a warning rather than a stop.
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  if apt-get install -y -qq ffmpeg >/dev/null 2>&1; then
+    note "ffmpeg installed (for the camera feed)"
+  else
+    note "!! ffmpeg could not be installed; the camera feed will not work"
+  fi
+else
+  note "ffmpeg present"
+fi
+
 step "Creating the service user"
 if id "$USER_NAME" &>/dev/null; then
   note "user $USER_NAME already exists"
@@ -103,6 +115,30 @@ POSPRINTWEB_QUIET_END=8
 
 # Optional word blocklist, one term per line. Comments start with #.
 POSPRINTWEB_BLOCKLIST=
+
+# --- live camera (optional) ------------------------------------------------
+# RTSP URL of a camera pointed at the printer. Empty disables the feed.
+# Tapo: enable Advanced Settings -> Camera Account in the app first, then
+#   rtsp://<user>:<pass>@<camera-ip>:554/stream2   (360p, easy on the uplink)
+#   rtsp://<user>:<pass>@<camera-ip>:554/stream1   (1080p)
+# These credentials never reach a browser; the page only ever gets JPEGs.
+POSPRINTWEB_CAMERA_URL=
+
+# always | after_print | off
+# THIS IS A PRIVACY SETTING. "always" puts a live view of the room on a public
+# URL, permanently. Point the camera at the printer and nothing else.
+POSPRINTWEB_CAMERA_MODE=always
+
+# 0 uses the camera's own frame rate and resolution. Lower them if the flat's
+# upload bandwidth suffers - that is the bottleneck, not the VPS.
+POSPRINTWEB_CAMERA_FPS=0
+POSPRINTWEB_CAMERA_WIDTH=0
+POSPRINTWEB_CAMERA_QUALITY=6
+POSPRINTWEB_CAMERA_MAX_VIEWERS=6
+
+# Cuts the picture immediately, without stopping printing:
+#   touch /etc/posprintweb-camera.disabled
+POSPRINTWEB_CAMERA_KILLSWITCH=/etc/posprintweb-camera.disabled
 
 # ONLY set this to true once a reverse proxy or tunnel is actually in front.
 # With it on and nothing in front, anyone can forge the header below and mint

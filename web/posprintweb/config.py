@@ -44,6 +44,14 @@ def _env_codepage(name: str, default: str) -> str:
     return raw
 
 
+def _env_choice(name: str, default: str, allowed: tuple[str, ...]) -> str:
+    """A typo here would silently change a privacy setting, so it is fatal."""
+    raw = os.environ.get(name, default).strip().lower() or default
+    if raw not in allowed:
+        raise SystemExit(f"{name}={raw!r} must be one of: {', '.join(allowed)}")
+    return raw
+
+
 def _env_list(name: str) -> list[str]:
     raw = os.environ.get(name, "")
     return [p.strip() for p in raw.split(",") if p.strip()]
@@ -71,6 +79,33 @@ class Config:
     # than printed as '?'. Set them together or the page will promise something
     # the paper cannot deliver.
     codepage: str = "cp858"
+
+    # -- camera -----------------------------------------------------------
+    # A live view of the printer. The RTSP URL carries credentials and stays in
+    # this process; the browser only ever sees a JPEG from /api/camera.jpg.
+    #
+    # camera_mode is the privacy decision. This is a camera in a home, on a URL
+    # strangers already have, so it is worth choosing deliberately:
+    #
+    #   always      - live whenever anyone has the page open
+    #   after_print - live for camera_window_seconds once something prints, so
+    #                 a visitor sees their own receipt appear and nothing else
+    #   off         - disabled
+    camera_url: str = ""
+    camera_mode: str = "always"
+    camera_window_seconds: int = 90
+    camera_fps: int = 0              # 0 = whatever the camera sends
+    camera_width: int = 0            # 0 = no rescaling; stream2 is already 640x360
+    camera_quality: int = 6          # ffmpeg -q:v, 2 best .. 31 worst
+    camera_idle_timeout: int = 15
+    # Frames are shared, so the camera and the home uplink see one decode no
+    # matter how many people watch. What does scale per viewer is bytes leaving
+    # the VPS - and upstream from the flat, which is the scarcer of the two.
+    camera_max_viewers: int = 6
+    # Presence of this file stops the feed at once, no restart. The camera
+    # equivalent of POSPRINTWEB_KILLSWITCH, and separate from it on purpose:
+    # cutting the picture should not have to mean cutting the printing.
+    camera_killswitch: str = "/etc/posprintweb-camera.disabled"
 
     # -- braille art ------------------------------------------------------
     # Braille characters are printed as a decoded bitmap rather than as text,
@@ -155,6 +190,20 @@ class Config:
             site_blurb=os.environ.get("POSPRINTWEB_BLURB", cls.site_blurb),
             columns=_env_int("POSPRINTWEB_COLUMNS", 48),
             codepage=_env_codepage("POSPRINTWEB_CODEPAGE", "cp858"),
+            camera_url=os.environ.get("POSPRINTWEB_CAMERA_URL", "").strip(),
+            camera_mode=_env_choice(
+                "POSPRINTWEB_CAMERA_MODE", "always",
+                ("after_print", "always", "off"),
+            ),
+            camera_window_seconds=_env_int("POSPRINTWEB_CAMERA_WINDOW", 90),
+            camera_fps=_env_int("POSPRINTWEB_CAMERA_FPS", 0),
+            camera_width=_env_int("POSPRINTWEB_CAMERA_WIDTH", 0),
+            camera_quality=_env_int("POSPRINTWEB_CAMERA_QUALITY", 6),
+            camera_idle_timeout=_env_int("POSPRINTWEB_CAMERA_IDLE", 15),
+            camera_max_viewers=_env_int("POSPRINTWEB_CAMERA_MAX_VIEWERS", 6),
+            camera_killswitch=os.environ.get(
+                "POSPRINTWEB_CAMERA_KILLSWITCH", "/etc/posprintweb-camera.disabled"
+            ),
             braille_enabled=_env_bool("POSPRINTWEB_BRAILLE", True),
             braille_max_cols=_env_int("POSPRINTWEB_BRAILLE_MAX_COLS", 72),
             braille_max_rows=_env_int("POSPRINTWEB_BRAILLE_MAX_ROWS", 40),
