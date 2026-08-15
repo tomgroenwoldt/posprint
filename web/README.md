@@ -371,6 +371,20 @@ cached page from before that fix — hard-reload once.
 **Everyone shares one rate limit.** A proxy is in front but
 `POSPRINTWEB_TRUST_PROXY` is still `false`.
 
+**The camera 503s and the log says `ffmpeg exited (-31)`.** A negative code is a
+signal, and 31 is `SIGSYS`: seccomp killed it. ffmpeg inherits the unit's
+`SystemCallFilter`, and Debian's build calls `set_mempolicy` from libnuma (via
+libx265) during library init. The unit allows that one call back explicitly —
+if you see this, the running unit predates that fix, so re-run `install.sh`.
+
+The same command working when you run it by hand is the tell: your shell is not
+inside the service's sandbox. Confirm it on the **host**, not in the container,
+since they share a kernel:
+
+```bash
+dmesg -T | grep 'comm="ffmpeg"' | tail -3      # look for sig=31 syscall=NNN
+```
+
 **`status=226/NAMESPACE` on start.** Unprivileged LXC. `install.sh` should have
 dropped in `10-container.conf`; re-run it. Do not "fix" this by enabling
 `nesting=1`.

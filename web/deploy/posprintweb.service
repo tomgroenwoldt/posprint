@@ -47,6 +47,15 @@ MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
+# ffmpeg, spawned for the camera feed, inherits this filter. Debian builds it
+# against libx265, which links libnuma and calls set_mempolicy while its
+# libraries initialise - long before it decodes anything. That call lives in
+# @resources, so seccomp killed ffmpeg with SIGSYS (exit -31) before it could
+# write a word to stderr, and the feed failed with no explanation anywhere.
+#
+# Allowing back this one syscall keeps the rest of @resources denied: the
+# process still cannot renice itself, pin CPUs or touch swap.
+SystemCallFilter=set_mempolicy
 CapabilityBoundingSet=
 
 [Install]
