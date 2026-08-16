@@ -1,0 +1,54 @@
+# Terms that make a message vanish quietly.
+#
+# A match is accepted with a normal success response, charged against the
+# sender's quota, written to the log, and never printed. Nobody is told. See
+# "The quiet filter" in web/README.md.
+#
+# Copy this somewhere real and point POSPRINTWEB_SHADOWLIST at it:
+#     cp shadowlist.example.txt /etc/posprintweb-shadowlist.txt
+#
+# One term per line. Matching is case-insensitive, ignores accents, and is done
+# on WORD BOUNDARIES - "ass" will not match "class" or "passport". Terms of
+# five characters or more are additionally matched with separators removed, so
+# f-u-c-k and f.u.c.k are caught too.
+#
+# A false positive here is invisible: the sender is told it printed and you get
+# a log line nobody reads. So prefer specific terms over broad ones, and check
+# the log occasionally to see what it has been catching.
+
+# --- explicit sexual terms (the usual ASCII-art spam) ---------------------
+cock
+dick
+penis
+schwanz
+blowjob
+cumshot
+handjob
+anal
+titties
+boobs
+pussy
+vagina
+wichser
+fotze
+
+# --- general profanity ----------------------------------------------------
+fuck
+fucking
+motherfucker
+shit
+bullshit
+bitch
+bastard
+arschloch
+scheisse
+hurensohn
+missgeburt
+
+# --- slurs ----------------------------------------------------------------
+# Deliberately not enumerated here. Add the ones you actually see, in the
+# languages your visitors actually use - a generic list of every slur in
+# English is mostly dead weight and still misses whatever turns up. The log is
+# the source of truth for what to add:
+#
+#     curl -s -H "X-Admin-Key: $KEY" http://127.0.0.1:8000/admin/log | jq '.prints[].message'

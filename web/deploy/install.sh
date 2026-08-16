@@ -114,7 +114,24 @@ POSPRINTWEB_QUIET_START=22
 POSPRINTWEB_QUIET_END=8
 
 # Optional word blocklist, one term per line. Comments start with #.
+# This one REFUSES the message and says so, which tells whoever is probing
+# exactly what to edit.
 POSPRINTWEB_BLOCKLIST=
+
+# The quiet counterpart. A match is accepted with a normal success response,
+# charged against the sender's quota, logged, and never printed. Nothing about
+# it appears on the page, so there is nothing to iterate against.
+#   cp /root/posprint/web/deploy/shadowlist.example.txt /etc/posprintweb-shadowlist.txt
+POSPRINTWEB_SHADOWLIST=
+
+# Not keyed on IP, because an attacker's address is not a scarce resource.
+# Refuses content already printed within this many hours, however it has been
+# re-spaced or re-cased. 0 disables.
+POSPRINTWEB_REPEAT_HOURS=24
+
+# Burst cap across everyone. Blunts a flood without ending the day the way the
+# daily budget would. 0 disables.
+POSPRINTWEB_GLOBAL_HOURLY=30
 
 # --- live camera (optional) ------------------------------------------------
 # RTSP URL of a camera pointed at the printer. Empty disables the feed.

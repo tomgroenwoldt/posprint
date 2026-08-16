@@ -11,9 +11,12 @@ requests both pass the same quota check.
 
 from __future__ import annotations
 
+import hashlib
+import re
 import sqlite3
 import threading
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
@@ -32,6 +35,32 @@ CREATE TABLE IF NOT EXISTS prints (
 CREATE INDEX IF NOT EXISTS prints_ip_ts ON prints (ip, ts);
 CREATE INDEX IF NOT EXISTS prints_day   ON prints (day);
 """
+
+# Added after the first release, so it arrives by migration rather than in
+# SCHEMA - an existing database must not be rebuilt to gain a column.
+MIGRATIONS = [
+    "ALTER TABLE prints ADD COLUMN fingerprint TEXT NOT NULL DEFAULT ''",
+    "CREATE INDEX IF NOT EXISTS prints_fp_ts ON prints (fingerprint, ts)",
+]
+
+
+def fingerprint(text: str) -> str:
+    """Identify a message by what it *looks* like, not by its exact bytes.
+
+    Per-IP limits are the wrong tool against someone who can change address at
+    will, so repeats are caught by content instead. Matching raw text would be
+    beaten by pressing space once, so the comparison is made on a folded form:
+    case, accents and every whitespace character removed.
+
+    What that catches: the same drawing re-sent, re-indented, re-cased, or with
+    its lines re-wrapped. What it does not: a genuinely edited message. That is
+    the intended line - a visitor who bothers to change the content is sending
+    something new, which is all anyone can reasonably ask.
+    """
+    folded = unicodedata.normalize("NFKD", text.casefold())
+    folded = "".join(c for c in folded if not unicodedata.combining(c))
+    folded = re.sub(r"\s+", "", folded)
+    return hashlib.sha256(folded.encode("utf-8")).hexdigest()[:32]
 
 
 class QuotaExceeded(Exception):
@@ -60,6 +89,11 @@ class Store:
         self._db = sqlite3.connect(path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(SCHEMA)
+        for statement in MIGRATIONS:
+            try:
+                self._db.execute(statement)
+            except sqlite3.OperationalError:
+                pass          # already applied; SQLite has no ADD COLUMN IF NOT EXISTS
         self._db.commit()
 
     def close(self) -> None:
@@ -78,6 +112,8 @@ class Store:
         cooldown_seconds: int,
         per_ip_daily: int,
         global_daily: int,
+        global_hourly: int = 0,
+        repeat_hours: int = 0,
         now: float | None = None,
     ) -> Reservation:
         """Claim one print against the quotas, or raise QuotaExceeded."""
@@ -130,10 +166,43 @@ class Store:
                             retry_after=self._seconds_to_midnight(now),
                         )
 
+                # -- the two checks that do not care about the address ------
+                #
+                # Everything above is keyed on IP, which is worth little
+                # against someone who can change theirs. These are not.
+
+                fp = fingerprint(message)
+                if repeat_hours > 0:
+                    seen = cur.execute(
+                        "SELECT ts FROM prints WHERE fingerprint = ? AND ts > ? "
+                        "AND state NOT IN ('rejected') ORDER BY ts DESC LIMIT 1",
+                        (fp, now - repeat_hours * 3600),
+                    ).fetchone()
+                    if seen is not None:
+                        wait = int(repeat_hours * 3600 - (now - seen["ts"])) + 1
+                        raise QuotaExceeded(
+                            "That has already been printed. Send something else.",
+                            retry_after=wait,
+                        )
+
+                if global_hourly > 0:
+                    recent = cur.execute(
+                        "SELECT COUNT(*) AS n FROM prints "
+                        "WHERE ts > ? AND state != 'rejected'",
+                        (now - 3600,),
+                    ).fetchone()["n"]
+                    if recent >= global_hourly:
+                        # Blunts a burst without ending the day for everyone,
+                        # which the daily cap alone would do.
+                        raise QuotaExceeded(
+                            "The printer is busy right now. Try again later.",
+                            retry_after=600,
+                        )
+
                 cur.execute(
-                    "INSERT INTO prints (ts, day, ip, name, message, state) "
-                    "VALUES (?, ?, ?, ?, ?, 'pending')",
-                    (now, day, ip, name, message),
+                    "INSERT INTO prints (ts, day, ip, name, message, state, fingerprint) "
+                    "VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+                    (now, day, ip, name, message, fp),
                 )
                 row_id = int(cur.lastrowid or 0)
                 self._db.commit()

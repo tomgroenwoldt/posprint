@@ -47,6 +47,8 @@ removing any one of them leaves a hole worth caring about.
 | A picture costing far more roll than a message | Braille art prints as a bitmap (see below), so it gets its own limits — a grid and a height in dots, not a character count. `POSPRINTWEB_BRAILLE_MAX_DOTS` caps the paper one picture may spend; `POSPRINTWEB_BRAILLE=false` disables the feature outright. |
 | Printer chattering at 03:00 | Quiet hours, local to your timezone, wrapping midnight correctly. |
 | Rate limits bypassed by forging `X-Forwarded-For` | Ignored unless `POSPRINTWEB_TRUST_PROXY=true`, which you set **only** once a trusted proxy is actually in front. |
+| Every per-IP limit bypassed by *changing IP* | Two controls that never look at the address: the same content is refused for `REPEAT_HOURS` however it is re-spaced or re-cased, and `GLOBAL_HOURLY` caps the burst rate across everyone. An attacker's address is not a scarce resource; your paper is. |
+| Someone iterating to find which slurs get through | The quiet filter, below. A match is accepted, charged, logged and never printed — so there is no feedback to iterate against. |
 | It all goes wrong at once | `touch /etc/posprintweb.disabled` stops printing immediately, no restart. |
 | Abuse you need to trace afterwards | Every attempt is logged to SQLite with timestamp, IP and body, readable at `GET /admin/log`. |
 
@@ -186,6 +188,53 @@ Getting that order wrong is the one mistake with teeth:
 Tailscale Funnel works too and is less setup, but gives you no request-level
 controls of its own.
 
+## The quiet filter
+
+There are two wordlists and the difference between them is the point.
+
+`POSPRINTWEB_BLOCKLIST` refuses the message and says so: *"That message was
+blocked."* Honest, and useful for keeping ordinary people honest — but it tells
+whoever is probing precisely what to edit, and they will.
+
+`POSPRINTWEB_SHADOWLIST` says nothing. A match gets a normal success response,
+is charged against the sender's quota, appears in `/admin/log` with
+`state: shadowed`, and never reaches the paper. Someone testing which slurs get
+through learns nothing, has nothing to iterate against, and spends their daily
+allowance on receipts that do not exist.
+
+```bash
+cp /root/posprint/web/deploy/shadowlist.example.txt /etc/posprintweb-shadowlist.txt
+# then set POSPRINTWEB_SHADOWLIST=/etc/posprintweb-shadowlist.txt and restart
+```
+
+Three details that matter:
+
+- **Nothing about it is visible client-side.** Not in `/api/status`, not in the
+  page, not in the response body. `test_the_filter_is_invisible_in_the_public_api`
+  pins that.
+- **The reply is delayed by `SHADOW_DELAY_MS` (900ms).** A real print takes
+  about a second of printer time; returning instantly is the one tell a
+  determined sender could measure.
+- **Matching allows separators inside a term, not around it.** `f-u-c-k` is
+  caught; `peacock` and `Scunthorpe` are not. A false positive here is
+  invisible to everyone including you, so read the log occasionally.
+
+The admin key bypasses it, so your own messages are never swallowed.
+
+### Limits that ignore the sender's address
+
+Per-IP cooldowns and daily caps are worth little against someone who can change
+address at will. Two controls don't look at the address at all:
+
+| Setting | What it does |
+| --- | --- |
+| `REPEAT_HOURS` (24) | Refuses content already printed in that window, matched on a folded fingerprint — case, accents and all whitespace removed. Re-indenting or re-casing the same drawing does not get a second print. |
+| `GLOBAL_HOURLY` (30) | Caps prints per hour across everyone. Blunts a flood without ending the day the way the daily budget would. |
+
+The repeat check counts shadowed prints too — otherwise a caught message could
+be resent indefinitely, one address at a time. It does *not* count failed
+prints, since those produced no paper.
+
 ## Live camera
 
 A camera pointed at the printer, streamed on the page. Same rule as the API
@@ -297,7 +346,11 @@ All settings are environment variables, read once at startup from
 | `POSPRINTWEB_MAX_NAME_CHARS` | `32` | Length of the optional sender name |
 | `POSPRINTWEB_QUIET_START` / `_END` | `22` / `8` | Local hours. Set both equal to disable |
 | `POSPRINTWEB_TZ` | `Europe/Berlin` | Timezone for quiet hours and daily rollover |
-| `POSPRINTWEB_BLOCKLIST` | *(empty)* | Path to a newline-separated wordlist |
+| `POSPRINTWEB_BLOCKLIST` | *(empty)* | Path to a wordlist. Refuses the message **and says so** |
+| `POSPRINTWEB_SHADOWLIST` | *(empty)* | Path to a wordlist. Accepts, charges, logs, never prints. See "The quiet filter" |
+| `POSPRINTWEB_SHADOW_DELAY_MS` | `900` | Makes a swallowed message take as long as a real print |
+| `POSPRINTWEB_REPEAT_HOURS` | `24` | Refuse content already printed in this window, whatever the sender's IP. `0` disables |
+| `POSPRINTWEB_GLOBAL_HOURLY` | `30` | Burst cap across everyone. `0` disables |
 | `POSPRINTWEB_TRUST_PROXY` | `false` | Trust the forwarding header for the client address. Read "Exposing it" first |
 | `POSPRINTWEB_CLIENT_IP_HEADER` | `x-forwarded-for` | The one header trusted when the above is on. `cf-connecting-ip` behind Cloudflare |
 | `POSPRINTWEB_ADMIN_KEYS` | *(empty)* | Comma-separated. Bypass all limits, unlock `/admin/log` |

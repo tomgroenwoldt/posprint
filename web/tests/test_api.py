@@ -22,6 +22,11 @@ os.environ.update(
     POSPRINTWEB_KILLSWITCH="",
     POSPRINTWEB_ADMIN_KEYS="admin-secret",
     POSPRINTWEB_TZ="UTC",
+    # Off by default here so the quota tests can send the same message twice
+    # and still be testing quotas. Both are exercised directly in
+    # test_shadow.py, and through the API by the tests that switch them on.
+    POSPRINTWEB_REPEAT_HOURS="0",
+    POSPRINTWEB_GLOBAL_HOURLY="0",
 )
 
 from posprintweb import app as appmod  # noqa: E402
@@ -326,6 +331,60 @@ def test_charset_is_published_for_the_preview(client):
     assert "é" in charset["printable"]
     assert "안" not in charset["printable"]
     assert charset["replacements"]["—"] == "-"
+
+
+def test_repeats_are_refused_across_addresses(client, fake, override):
+    """The defence that does not care about the sender's IP."""
+    override(repeat_hours=24)
+    assert send(client, message="spam art", ip="1.1.1.1").status_code == 200
+    r = send(client, message="spam art", ip="2.2.2.2")
+    assert r.status_code == 429
+    assert "already been printed" in r.json()["detail"]
+    assert len(fake.jobs) == 1
+
+
+def test_shadowed_message_looks_exactly_like_a_success(client, fake, override):
+    """The sender must not be able to tell. Only the log knows."""
+    override(shadowlist=("badword",), shadow_delay_ms=0)
+    ok = send(client, message="hello there", ip="5.5.5.5")
+    bad = send(client, message="badword here", ip="6.6.6.6")
+
+    assert bad.status_code == ok.status_code == 200
+    assert bad.json().keys() == ok.json().keys()
+    assert bad.json()["ok"] is True and bad.json()["state"] == "printed"
+    # ...but nothing reached the printer.
+    assert [j["message"] for j in fake.jobs] == ["hello there"]
+
+
+def test_a_shadowed_message_still_costs_the_sender_their_quota(client, override):
+    override(shadowlist=("badword",), shadow_delay_ms=0)
+    first = send(client, message="badword one", ip="7.7.7.7")
+    assert first.json()["remaining_today"] == 2      # per_ip_daily is 3 here
+    # And the cooldown applies, exactly as if it had printed.
+    assert send(client, message="something else", ip="7.7.7.7").status_code == 429
+
+
+def test_shadowed_messages_are_visible_to_the_owner(client, override):
+    override(shadowlist=("badword",), shadow_delay_ms=0)
+    send(client, message="badword here", ip="8.8.8.8")
+    log = client.get("/admin/log", headers={"X-Admin-Key": "admin-secret"}).json()
+    row = log["prints"][0]
+    assert row["state"] == "shadowed"
+    assert row["message"] == "badword here"
+
+
+def test_the_filter_is_invisible_in_the_public_api(client, override):
+    """Nothing may hint that a quiet filter exists."""
+    override(shadowlist=("badword",))
+    body = client.get("/api/status").text.lower()
+    for leak in ("shadow", "blocklist", "badword", "filter"):
+        assert leak not in body
+
+
+def test_admin_key_bypasses_the_quiet_filter(client, fake, override):
+    override(shadowlist=("badword",), shadow_delay_ms=0)
+    send(client, message="badword here", key="admin-secret")
+    assert fake.jobs and "badword" in fake.jobs[0]["message"]
 
 
 def test_only_the_configured_header_is_trusted(client):

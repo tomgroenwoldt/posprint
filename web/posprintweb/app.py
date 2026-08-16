@@ -13,6 +13,7 @@ and a document assembled server-side.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -29,7 +30,7 @@ try:
 except ImportError:  # pragma: no cover - Python < 3.9
     ZoneInfo = None  # type: ignore[assignment]
 
-from . import braille
+from . import braille, shadow
 from .camera import Camera
 from .config import Config
 from .filters import (
@@ -317,6 +318,8 @@ async def print_message(
                 cooldown_seconds=cfg.cooldown_seconds,
                 per_ip_daily=cfg.per_ip_daily,
                 global_daily=cfg.global_daily,
+                global_hourly=cfg.global_hourly,
+                repeat_hours=cfg.repeat_hours,
             )
         except QuotaExceeded as exc:
             return JSONResponse(
@@ -324,6 +327,28 @@ async def print_message(
                 status_code=429,
                 headers={"Retry-After": str(exc.retry_after)},
             )
+
+    # The quiet filter. Deliberately after the reservation, so the sender pays
+    # for it exactly as if it had printed, and before the upstream call, so no
+    # paper moves. The response below is byte-identical to a real success.
+    hit = shadow.matches(f"{message}\n{name}", cfg.shadowlist)
+    if hit and not admin:
+        log.warning("shadowed a message from %s (matched %r): %r", ip, hit, message[:120])
+        if reservation is not None:
+            store.finish(reservation, "shadowed")
+        # Without this the reply comes back far faster than a real print, which
+        # is the one tell a determined sender could measure.
+        await asyncio.sleep(cfg.shadow_delay_ms / 1000)
+        counts = store.counts(ip)
+        return JSONResponse(
+            {
+                "ok": True,
+                "state": "printed",
+                "remaining_today": max(0, cfg.per_ip_daily - counts["used_today"]),
+                "next_allowed_in": cfg.cooldown_seconds,
+            },
+            status_code=200,
+        )
 
     try:
         result = await upstream.print_message(

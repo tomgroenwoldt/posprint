@@ -142,8 +142,28 @@ class Config:
     enabled: bool = True
 
     # Newline-separated, case-insensitive substrings. Empty file = no filter.
+    # This one answers the sender: "that message was blocked".
     blocklist_path: str = ""
     blocklist: tuple[str, ...] = ()
+
+    # The quiet counterpart. A match is accepted, charged against the sender's
+    # quota, logged, and never printed. Nothing about it appears in /api/status
+    # or on the page, so someone probing which words get through learns
+    # nothing and has nothing to iterate against.
+    shadowlist_path: str = ""
+    shadowlist: tuple[str, ...] = ()
+
+    # A real print takes about a second of printer time. Returning instantly
+    # would make a swallowed message obvious to anyone watching the clock.
+    shadow_delay_ms: int = 900
+
+    # Not keyed on IP, because an attacker's IP is not a scarce resource.
+    # Refuses a message whose content has already been printed within this
+    # many hours, however it has been re-spaced or re-cased. 0 disables.
+    repeat_hours: int = 24
+    # A burst cap that does not end the day for everyone the way the daily
+    # budget would. 0 disables.
+    global_hourly: int = 30
 
     # The forwarding header is attacker-controlled unless something trusted
     # overwrites it. Only turn this on when a reverse proxy or tunnel is
@@ -177,6 +197,11 @@ class Config:
                     )
             except OSError as exc:
                 raise SystemExit(f"POSPRINTWEB_BLOCKLIST unreadable: {exc}") from exc
+
+        from .shadow import load as _load_shadow
+
+        shadow_path = os.environ.get("POSPRINTWEB_SHADOWLIST", "").strip()
+        shadow_terms = _load_shadow(shadow_path)
 
         return cls(
             upstream_url=os.environ.get(
@@ -225,6 +250,11 @@ class Config:
             enabled=_env_bool("POSPRINTWEB_ENABLED", True),
             blocklist_path=path,
             blocklist=blocklist,
+            shadowlist_path=shadow_path,
+            shadowlist=shadow_terms,
+            shadow_delay_ms=_env_int("POSPRINTWEB_SHADOW_DELAY_MS", 900),
+            repeat_hours=_env_int("POSPRINTWEB_REPEAT_HOURS", 24),
+            global_hourly=_env_int("POSPRINTWEB_GLOBAL_HOURLY", 30),
             trust_proxy=_env_bool("POSPRINTWEB_TRUST_PROXY", False),
             client_ip_header=os.environ.get(
                 "POSPRINTWEB_CLIENT_IP_HEADER", "x-forwarded-for"
