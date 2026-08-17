@@ -40,7 +40,7 @@ let tooLong = false;
 
 /* -- braille art --------------------------------------------------------- */
 
-const BRAILLE = /[⠀-⣿]/;
+const BRAILLE = Receipt.BRAILLE;
 const BRAILLE_OR_SPACE = /[⠀-⣿\s]/;
 
 // Mirrors braille.py exactly - same detection, same trimming, same integer
@@ -85,99 +85,13 @@ function brailleArt(text) {
   return { stray, rows, cols, scale, ink, mm: (rows * 4 * scale) / 203 * 25.4 };
 }
 
-/* -- what the printer can actually render -------------------------------- */
-
-// Mirrors posprint's encode_text and the server's filters.unprintable: the
-// character itself, then an explicit replacement, then accent folding. The
-// tables come from the server so this cannot drift from the real code page.
-function asPrinted(ch) {
-  if (!charset) return ch;
-  if (charset.printable.has(ch)) return ch;
-
-  const replacement = charset.replacements[ch];
-  if (replacement && [...replacement].every((c) => charset.printable.has(c))) {
-    return replacement;
-  }
-
-  const folded = ch.normalize("NFKD").replace(/\p{M}/gu, "");
-  if (folded && [...folded].every((c) => charset.printable.has(c))) return folded;
-
-  return null;                       // reaches the paper as '?', or not at all
-}
-
-// Returns the text as it would come off the roll, and the distinct characters
-// that cannot make it there.
-function toPaper(text) {
-  let out = "";
-  const bad = [];
-  for (const ch of text) {
-    if (ch === "\n" || ch === "\t") { out += ch; continue; }
-    const printed = asPrinted(ch);
-    if (printed === null) {
-      out += "?";
-      if (!bad.includes(ch)) bad.push(ch);
-    } else {
-      out += printed;
-    }
-  }
-  return { text: out, bad };
-}
-
-/* -- receipt preview ----------------------------------------------------- */
-
-// Mirrors the wrapping posprint does at print time, which is Python's textwrap:
-// runs of spaces survive inside a line, are dropped where a line breaks, and
-// the first line keeps its indent.
+/* -- receipt rendering --------------------------------------------------- */
 //
-// The previous version split on /\s+/ and rejoined with single spaces, which
-// silently flattened every run. Prose survived that; ASCII art did not, and the
-// preview disagreed with the paper for exactly the messages where alignment is
-// the entire point.
-function wrap(text, cols) {
-  const out = [];
-  for (const para of text.split("\n")) {
-    // The overwhelmingly common case, and the one art depends on: it fits, so
-    // it goes through untouched, spacing and all.
-    if (para.length <= cols) { out.push(para); continue; }
+// wrap(), toPaper() and the alignment helpers moved to receipt.js so the
+// gallery draws a message exactly as this preview does. Thin wrappers here
+// keep the call sites below unchanged and bind the charset once.
 
-    const chunks = para.split(/(\s+)/).filter((c) => c !== "");
-    let line = "";
-    let firstLine = true;
-    const flush = () => { out.push(line.replace(/\s+$/, "")); line = ""; firstLine = false; };
-
-    for (const chunk of chunks) {
-      const isSpace = /^\s+$/.test(chunk);
-      // Whitespace that lands at the start of a continuation line is dropped;
-      // on the very first line it is indentation and must be kept.
-      if (isSpace && line === "" && !firstLine) continue;
-      if (line.length + chunk.length <= cols) { line += chunk; continue; }
-      if (isSpace) { flush(); continue; }
-      if (line !== "") flush();
-      let word = chunk;
-      while (word.length > cols) {          // a single word longer than the roll
-        out.push(word.slice(0, cols));
-        word = word.slice(cols);
-        firstLine = false;
-      }
-      line = word;
-    }
-    if (line !== "") flush();
-  }
-  return out;
-}
-
-const pad = (s, cols, unitWidth = 1) =>
-  " ".repeat(Math.max(0, Math.floor((cols - s.length * unitWidth) / 2)));
-const centre = (s, cols) => pad(s, cols) + s;
-const rightAlign = (s, cols) => " ".repeat(Math.max(0, cols - s.length)) + s;
-const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-
-function stamp() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
-         `${p(d.getHours())}:${p(d.getMinutes())}`;
-}
+const toPaper = (text) => Receipt.toPaper(text, charset);
 
 function renderPreview() {
   const cols = limits.columns;
@@ -195,27 +109,21 @@ function renderPreview() {
   // image. So it must skip the charset check that refuses Korean and emoji,
   // and it must not be wrapped - the art's width is the picture.
   const art = brailleArt(typed);
-  const message = art ? { text: typed, bad: [] } : toPaper(typed);
-  const sender = toPaper(from);
-  unprintable = [...new Set([...message.bad, ...sender.bad])];
+  // The charset warning still needs to know which characters would be lost,
+  // which Receipt.render does not report - so the conversion runs here too.
+  // It is pure and cheap, and the alternative is a second return value that
+  // only one of the two callers wants.
+  unprintable = art
+    ? [...new Set(toPaper(from).bad)]
+    : [...new Set([...toPaper(typed).bad, ...toPaper(from).bad])];
 
-  const body = message.text.trim() ? message.text : "…";
-  const who = sender.text || "someone on the internet";
-
-  // Art is never wrapped: its width *is* the picture, and the server scales
-  // the whole bitmap to the head rather than breaking lines.
-  const rendered = art ? body.split("\n").map(esc) : wrap(body, cols).map(esc);
-
-  const parts = [
-    pad("INCOMING", cols, 2) + `<span class="dbl">INCOMING</span>`,
-    esc(centre(stamp(), cols)),
-    "=".repeat(cols),
-    ...rendered,
-    "-".repeat(cols),
-    esc(rightAlign(`from: ${who}`, cols)),
-    "",
-  ];
-  el.paper.innerHTML = parts.join("\n");
+  el.paper.innerHTML = Receipt.render({
+    message: typed.trim() ? typed : "…",
+    name: from,
+    when: new Date(),
+    cols,
+    charset,
+  });
   // Counted on the cleaned text, which is what check_message() measures.
   tooLong = !art && [...typed].length > limits.max_chars;
   updateNotices(art);

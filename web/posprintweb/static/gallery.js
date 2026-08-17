@@ -1,42 +1,42 @@
 "use strict";
 
-// Every message here was typed by a stranger. It goes into the page with
-// textContent and nothing else - never innerHTML, never a template string that
-// ends up assigned to one. The receipt preview on the print page escapes and
-// then assigns HTML because it interleaves markup for the double-width header;
-// there is no such need here, so this takes the stronger guarantee.
+// Entries are drawn by Receipt.render, the same function the print page uses
+// for its preview, so what is shown here is what came off the roll - same
+// 48-column wrap, same code-page degradation, same header and from-line.
+//
+// That function returns HTML because the double-width heading needs a span,
+// and it escapes everything visitor-supplied on the way in. That escaping is
+// the only thing making this safe to assign to innerHTML; nothing else on this
+// page interpolates untrusted text into markup.
 
 const $ = (id) => document.getElementById(id);
 const el = { entries: $("entries"), more: $("more"), empty: $("empty") };
 
 let cursor = null;
 let columns = 48;
-
-function stamp(ts) {
-  const d = new Date(ts * 1000);
-  const p = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
-         `${p(d.getHours())}:${p(d.getMinutes())}`;
-}
+let charset = null;
 
 function entryNode(entry) {
   const li = document.createElement("li");
   li.className = "gallery__item";
 
-  const paper = document.createElement("pre");
-  paper.className = "gallery__paper";
-  paper.textContent = entry.message;
+  const paper = document.createElement("div");
+  paper.className = "paper";
+  const pre = document.createElement("pre");
+  pre.className = "gallery__paper";
+  pre.innerHTML = Receipt.render({
+    message: entry.message,
+    name: entry.name,
+    when: new Date(entry.ts * 1000),
+    cols: columns,
+    charset,
+  });
+  const tear = document.createElement("div");
+  tear.className = "paper__tear";
+  tear.setAttribute("aria-hidden", "true");
 
-  const meta = document.createElement("p");
-  meta.className = "gallery__meta";
-  // Assembled from two text nodes rather than one string so the name cannot
-  // be mistaken for markup even if this is refactored later.
-  meta.append(
-    document.createTextNode(entry.name ? `from ${entry.name}` : "from someone on the internet"),
-    document.createTextNode(` · ${stamp(entry.ts)}`),
-  );
-
-  li.append(paper, meta);
+  paper.append(pre, tear);
+  li.append(paper);
   return li;
 }
 
@@ -44,11 +44,15 @@ async function load() {
   el.more.disabled = true;
   try {
     const url = cursor === null ? "/api/gallery" : `/api/gallery?before=${cursor}`;
-    const r = await fetch(url);
-    const body = await r.json();
+    const body = await (await fetch(url)).json();
 
     columns = body.columns || columns;
-    document.documentElement.style.setProperty("--cols", String(columns));
+    if (body.charset) {
+      charset = {
+        printable: new Set(body.charset.printable),
+        replacements: body.charset.replacements,
+      };
+    }
 
     for (const entry of body.entries) el.entries.append(entryNode(entry));
 

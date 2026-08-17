@@ -83,16 +83,25 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
 /* -- gallery ------------------------------------------------------------ */
 
 .gallery { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; }
-.gallery__item {
-  border: 1px solid var(--line); border-radius: .4rem;
-  background: var(--paper); padding: .8rem .9rem;
-}
-/* Messages are written for a 48-column roll, so they are shown in the same
-   monospace at the same width. overflow-x keeps a wide line from stretching
-   the page rather than scrolling inside its own card. */
+/* Entries reuse .paper from the print preview, so an approved message looks
+   the way it looked before it was sent. The item itself is only a wrapper. */
+.gallery__item { list-style: none; }
 .gallery__paper {
   font-family: var(--mono); font-size: .8rem; line-height: 1.35;
   margin: 0; white-space: pre; overflow-x: auto;
+}
+
+/* -- tabs --------------------------------------------------------------- */
+
+.tabs { display: flex; gap: .4rem; margin: 0 0 1rem; }
+.tab {
+  width: auto; padding: .3rem .8rem; font-size: .82rem;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 999px;
+}
+.tab:hover { color: var(--ink); }
+.tab--current {
+  background: var(--ink); color: var(--paper); border-color: var(--ink);
 }
 .gallery__meta { margin: .6rem 0 0; font-size: .78rem; color: var(--muted); }
 .gallery__more { margin: 1.2rem 0 0; }

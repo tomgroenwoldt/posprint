@@ -279,15 +279,21 @@ class Store:
 
     # -- gallery ----------------------------------------------------------
 
-    def review_queue(self, limit: int = 50) -> list[dict]:
-        """Printed messages waiting on a decision. Includes the IP: this is
-        the owner's view, and knowing that six of these came from one address
-        is most of what makes a decision easy."""
+    def review_queue(self, limit: int = 50, gallery: str = "new") -> list[dict]:
+        """Printed messages in one of the three states, newest first.
+
+        Includes the IP: this is the owner's view, and knowing that six of
+        these came from one address is most of what makes a decision easy.
+        Reading back the `approved` list is how something already published
+        gets taken down again.
+        """
+        if gallery not in ("new", "approved", "hidden"):
+            raise ValueError(f"unknown gallery value {gallery!r}")
         with self._lock:
             rows = self._db.execute(
                 "SELECT id, ts, ip, name, message FROM prints "
-                "WHERE state = ? AND gallery = 'new' ORDER BY id DESC LIMIT ?",
-                (GALLERY_ELIGIBLE, max(1, min(limit, 200))),
+                "WHERE state = ? AND gallery = ? ORDER BY id DESC LIMIT ?",
+                (GALLERY_ELIGIBLE, gallery, max(1, min(limit, 200))),
             ).fetchall()
         return [dict(r) for r in rows]
 

@@ -208,8 +208,24 @@ back stack before you have finished reading the first message. From there it
 travels as the same `X-Admin-Key` header the API has always used: no cookie, no
 session, no second credential format.
 
-Approve puts a message on the public page. Hide leaves it printed and logged
-but never shown. Neither reprints anything, and both are reversible.
+Three lists, and every decision is reversible:
+
+| List | Actions |
+| --- | --- |
+| **Waiting** | Approve → public · Hide → never shown |
+| **Approved** | Remove from gallery → takes it back down |
+| **Hidden** | Publish · Back to queue |
+
+`hidden` is a state rather than a delete, so taking something down does not
+also destroy the record of what was sent. Nothing here reprints anything.
+
+Entries are drawn by `Receipt.render` in `static/receipt.js` — the same
+function the print page uses for its live preview. Both surfaces therefore show
+the same 48-column wrap, the same code-page degradation (`—` → `-`) and the
+same header and from-line, so the gallery shows what actually came off the
+roll. That shared module exists because `wrap()` was built to match Python's
+`textwrap` line for line; a second copy would drift the first time either was
+touched.
 
 Two things deliberately cannot be approved:
 

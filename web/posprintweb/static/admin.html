@@ -22,17 +22,25 @@
     <p id="counts" class="muted"></p>
   </header>
 
+  <div class="tabs" role="tablist">
+    <button type="button" class="tab tab--current" data-list="new">Waiting</button>
+    <button type="button" class="tab" data-list="approved">Approved</button>
+    <button type="button" class="tab" data-list="hidden">Hidden</button>
+  </div>
+
   <p id="error" class="error" hidden></p>
 
   <ul id="queue" class="gallery"></ul>
 
-  <p id="empty" class="muted" hidden>Nothing waiting. All caught up.</p>
+  <p id="empty" class="muted" hidden></p>
 
   <footer>
     <p class="muted">Approving puts a message on the public gallery. Hiding
-       leaves it printed and logged but never shown. Neither reprints anything.</p>
+       leaves it printed and logged but never shown. Nothing here reprints
+       anything, and every decision can be undone.</p>
   </footer>
 </main>
+<script src="/static/receipt.js"></script>
 <script src="/static/admin.js"></script>
 </body>
 </html>

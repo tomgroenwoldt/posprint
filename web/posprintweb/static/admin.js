@@ -10,9 +10,29 @@
 // always used - no cookie, no session, no second credential format.
 
 const $ = (id) => document.getElementById(id);
-const el = { queue: $("queue"), counts: $("counts"), error: $("error"), empty: $("empty") };
+const el = {
+  queue: $("queue"), counts: $("counts"), error: $("error"), empty: $("empty"),
+};
 
 const KEY_NAME = "posprintweb-admin-key";
+
+// Which buttons each list gets, and what they do. Every decision is
+// reversible, which is why "hidden" is a state rather than a delete: taking
+// something down should not also destroy the record of what was sent.
+const ACTIONS = {
+  new: [["approve", "Approve", ""], ["hide", "Hide", "button--quiet"]],
+  approved: [["hide", "Remove from gallery", "button--quiet"]],
+  hidden: [["approve", "Publish", ""], ["reset", "Back to queue", "button--quiet"]],
+};
+const EMPTY = {
+  new: "Nothing waiting. All caught up.",
+  approved: "Nothing published yet.",
+  hidden: "Nothing hidden.",
+};
+
+let list = "new";
+let columns = 48;
+let charset = null;
 
 function takeKey() {
   const fragment = location.hash.replace(/^#/, "").trim();
@@ -42,34 +62,40 @@ async function api(path, options = {}) {
   return r.json();
 }
 
-function stamp(ts) {
-  const d = new Date(ts * 1000);
-  const p = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
-         `${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-// Same rule as the gallery: strangers' text reaches the DOM only as text.
 function itemNode(entry) {
   const li = document.createElement("li");
   li.className = "gallery__item";
 
-  const paper = document.createElement("pre");
-  paper.className = "gallery__paper";
-  paper.textContent = entry.message;
+  // The same renderer the print preview and the gallery use, so a decision is
+  // made looking at what the visitor saw and what the paper showed.
+  const paper = document.createElement("div");
+  paper.className = "paper";
+  const pre = document.createElement("pre");
+  pre.className = "gallery__paper";
+  pre.innerHTML = Receipt.render({
+    message: entry.message,
+    name: entry.name,
+    when: new Date(entry.ts * 1000),
+    cols: columns,
+    charset,
+  });
+  const tear = document.createElement("div");
+  tear.className = "paper__tear";
+  tear.setAttribute("aria-hidden", "true");
+  paper.append(pre, tear);
 
+  // Only the admin sees the address, and only as text.
   const meta = document.createElement("p");
   meta.className = "gallery__meta";
-  meta.textContent =
-    `${entry.name || "(no name)"} · ${entry.ip} · ${stamp(entry.ts)}`;
+  meta.textContent = `${entry.ip} · ${Receipt.stamp(new Date(entry.ts * 1000))}`;
 
   const actions = document.createElement("p");
   actions.className = "review__actions";
-  for (const [action, label] of [["approve", "Approve"], ["hide", "Hide"]]) {
+  for (const [action, label, cls] of ACTIONS[list]) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = label;
-    button.className = action === "approve" ? "" : "button--quiet";
+    if (cls) button.className = cls;
     button.addEventListener("click", async () => {
       actions.querySelectorAll("button").forEach((b) => (b.disabled = true));
       try {
@@ -80,7 +106,7 @@ function itemNode(entry) {
         });
         li.remove();
         showCounts(body.counts);
-        el.empty.hidden = el.queue.children.length > 0;
+        showEmpty();
       } catch (err) {
         fail(String(err.message));
         actions.querySelectorAll("button").forEach((b) => (b.disabled = false));
@@ -98,16 +124,29 @@ function showCounts(counts) {
     `${counts.new} waiting · ${counts.approved} approved · ${counts.hidden} hidden`;
 }
 
+function showEmpty() {
+  el.empty.textContent = EMPTY[list];
+  el.empty.hidden = el.queue.children.length > 0;
+}
+
 async function load() {
   if (!KEY) {
     fail("Add your admin key to the URL: /admin#your-key");
     return;
   }
   try {
-    const body = await api("/api/admin/queue");
+    const body = await api(`/api/admin/queue?gallery=${list}`);
+    columns = body.columns || columns;
+    if (body.charset) {
+      charset = {
+        printable: new Set(body.charset.printable),
+        replacements: body.charset.replacements,
+      };
+    }
     el.queue.replaceChildren(...body.queue.map(itemNode));
     showCounts(body.counts);
-    el.empty.hidden = body.queue.length > 0;
+    showEmpty();
+    el.error.hidden = true;
   } catch (err) {
     if (err.message === "unauthorised") {
       // The API 404s rather than 401s so it does not confirm the endpoint to a
@@ -118,6 +157,16 @@ async function load() {
       fail(err.message);
     }
   }
+}
+
+for (const tab of document.querySelectorAll(".tab")) {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach((t) => t.classList.remove("tab--current"));
+    tab.classList.add("tab--current");
+    list = tab.dataset.list;
+    el.queue.replaceChildren();
+    load();
+  });
 }
 
 load();

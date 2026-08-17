@@ -228,6 +228,41 @@ def test_the_public_gallery_leaks_no_addresses(client):
     assert '"ip"' not in body
 
 
+def test_an_approved_entry_can_be_taken_down(client):
+    send(client, message="regrettable in hindsight")
+    queue = client.get("/api/admin/queue",
+                       headers={"X-Admin-Key": "admin-secret"}).json()
+    row_id = queue["queue"][0]["id"]
+    key = {"X-Admin-Key": "admin-secret"}
+
+    client.post("/api/admin/gallery", json={"id": row_id, "action": "approve"},
+                headers=key)
+    assert len(client.get("/api/gallery").json()["entries"]) == 1
+
+    # It is listed under `approved`, which is how the page offers a way back.
+    approved = client.get("/api/admin/queue?gallery=approved", headers=key).json()
+    assert [e["id"] for e in approved["queue"]] == [row_id]
+
+    client.post("/api/admin/gallery", json={"id": row_id, "action": "hide"},
+                headers=key)
+    assert client.get("/api/gallery").json()["entries"] == []
+
+
+def test_pages_carry_what_they_need_to_draw_a_receipt(client):
+    """Both surfaces render with the print preview's code, which needs these."""
+    for path in ("/api/gallery", "/api/admin/queue"):
+        body = client.get(path, headers={"X-Admin-Key": "admin-secret"}).json()
+        assert body["columns"] == 48
+        assert "é" in body["charset"]["printable"]
+        assert body["charset"]["replacements"]["—"] == "-"
+
+
+def test_an_unknown_gallery_list_is_rejected(client):
+    r = client.get("/api/admin/queue?gallery=featured",
+                   headers={"X-Admin-Key": "admin-secret"})
+    assert r.status_code == 422
+
+
 def test_a_short_page_offers_no_cursor(client):
     """Otherwise the page shows a 'Show older' button that fetches nothing."""
     send(client, message="only one")

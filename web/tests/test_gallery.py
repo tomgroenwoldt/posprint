@@ -126,6 +126,32 @@ def test_pages_are_disjoint(store):
     assert not {e["id"] for e in first} & {e["id"] for e in second}
 
 
+def test_approved_can_be_read_back_and_taken_down(store):
+    """Publishing is reversible; that is the point of hidden being a state."""
+    row = printed(store, "hello")
+    store.set_gallery(row, "approved")
+
+    listed = store.review_queue(gallery="approved")
+    assert [e["message"] for e in listed] == ["hello"]
+
+    store.set_gallery(row, "hidden")
+    assert store.gallery() == []
+    assert store.review_queue(gallery="approved") == []
+    assert [e["message"] for e in store.review_queue(gallery="hidden")] == ["hello"]
+
+
+def test_hidden_can_go_back_to_the_queue(store):
+    row = printed(store, "hello")
+    store.set_gallery(row, "hidden")
+    store.set_gallery(row, "new")
+    assert [e["message"] for e in store.review_queue()] == ["hello"]
+
+
+def test_an_unknown_list_is_a_programming_error(store):
+    with pytest.raises(ValueError):
+        store.review_queue(gallery="featured")
+
+
 def test_counts(store):
     a = printed(store, "one", now=1000.0)
     b = printed(store, "two", now=1001.0)

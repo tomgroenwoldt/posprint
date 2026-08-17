@@ -20,6 +20,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -470,13 +471,34 @@ async def api_gallery(limit: int = 30, before: int | None = None) -> dict:
     # advertise more to come and the page would show a "Show older" button that
     # fetches nothing.
     cursor = entries[-1]["id"] if len(entries) == limit else None
-    return {"entries": entries, "next": cursor, "columns": cfg.columns}
+    return {"entries": entries, "next": cursor, **_render_context()}
+
+
+def _render_context() -> dict:
+    """What a page needs to draw a message the way the paper shows it.
+
+    Sent with the entries rather than fetched separately so the gallery does
+    not have to call /api/status, which would poll the printer for a page that
+    has nothing to do with it.
+    """
+    return {
+        "columns": cfg.columns,
+        "charset": {"printable": CHARSET, "replacements": FALLBACK},
+    }
 
 
 @app.get("/api/admin/queue", dependencies=[Depends(require_admin)],
          include_in_schema=False)
-async def admin_queue(limit: int = 50) -> dict:
-    return {"queue": store.review_queue(limit), "counts": store.review_counts()}
+async def admin_queue(
+    limit: int = 50, gallery: Literal["new", "approved", "hidden"] = "new"
+) -> dict:
+    """One of the three lists. `approved` is how something already published
+    gets taken back down."""
+    return {
+        "queue": store.review_queue(limit, gallery),
+        "counts": store.review_counts(),
+        **_render_context(),
+    }
 
 
 @app.post("/api/admin/gallery", dependencies=[Depends(require_admin)],
