@@ -69,7 +69,20 @@ function brailleArt(text) {
   const rows = lines.length;
   const cols = Math.max(...lines.map((l) => l.length));
   const scale = scaleFor(cols, rows);
-  return { stray, rows, cols, scale, mm: (rows * 4 * scale) / 203 * 25.4 };
+
+  // Each braille codepoint carries eight dots, so its set bits *are* its ink.
+  // Same arithmetic as braille.ink_fraction() on the server, exactly.
+  let dots = 0, cells = 0;
+  for (const ch of text) {
+    const bits = ch.codePointAt(0) - 0x2800;
+    if (bits >= 0 && bits <= 0xff) {
+      cells += 1;
+      for (let b = bits; b; b >>= 1) dots += b & 1;
+    }
+  }
+  const ink = cells ? dots / (cells * 8) : 0;
+
+  return { stray, rows, cols, scale, ink, mm: (rows * 4 * scale) / 203 * 25.4 };
 }
 
 /* -- what the printer can actually render -------------------------------- */
@@ -230,9 +243,19 @@ function updateNotices(art) {
     showError(`That art is ${art.rows} lines tall; the limit is ` +
               `${brailleCfg.max_rows}.`);
     el.error.dataset.reason = "charset";
+  } else if (art && art.ink * 100 > brailleCfg.max_ink) {
+    mixedArt = true;
+    showError(
+      `That picture is ${Math.round(art.ink * 100)}% solid black and the ` +
+      `limit is ${brailleCfg.max_ink}%. The printer makes black by heating ` +
+      `the paper, so a filled-in image runs hot. Try something more like ` +
+      `line art.`
+    );
+    el.error.dataset.reason = "charset";
   } else if (art) {
     showNote(`This prints as a picture: ${art.cols}×${art.rows} cells at ` +
-             `${art.scale}×, about ${Math.round(art.mm)}mm of paper.`);
+             `${art.scale}×, about ${Math.round(art.mm)}mm of paper, ` +
+             `${Math.round(art.ink * 100)}% ink.`);
   } else if (tooLong) {
     showError(`Too long: ${[...el.message.value].length} characters, the ` +
               `limit is ${limits.max_chars}.`);

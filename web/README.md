@@ -306,6 +306,27 @@ Three consequences worth knowing:
   some dots four pixels across and others five, which on a 1-bit image reads as
   a texture crawling through the picture.
 
+### How dark is too dark
+
+A thermal head makes black by heating an element, so a filled-in picture prints
+slowly, runs hot and drains the roll's contrast. `BRAILLE_MAX_INK` caps the
+fraction of dots that may be black. Measured on real samples:
+
+| | Ink |
+| --- | --- |
+| Line art (mweol) | 12% |
+| Sparse dots | 13% |
+| **Half-filled cells** | **50%** |
+| Solid block | 100% |
+
+The default is **55**, not 50, and that gap is deliberate: 50% is exactly
+"every other dot", which is an ordinary dithering pattern rather than abuse.
+Setting the limit at 50 would refuse real photographs while the thing actually
+worth stopping is the solid rectangle at 100%.
+
+Each braille codepoint carries eight dots, so its set bits *are* its ink — the
+page computes the same number the server does and warns before you send.
+
 The same decoder is available as a command-line tool for art too big for the
 public limits: `scripts/braille_print.py`, which talks to posprint directly.
 
@@ -337,6 +358,7 @@ All settings are environment variables, read once at startup from
 | `POSPRINTWEB_BRAILLE_MAX_ROWS` | `40` | Art height in cells |
 | `POSPRINTWEB_BRAILLE_MAX_SCALE` | `8` | Stops a tiny drawing being blown up to fill the roll |
 | `POSPRINTWEB_BRAILLE_MAX_DOTS` | `640` | Paper budget for one picture, ~80mm at 203dpi |
+| `POSPRINTWEB_BRAILLE_MAX_INK` | `55` | Percent of dots allowed to be black. Refuses solid blocks; see below |
 | `POSPRINTWEB_PRINTER_DOTS` | `576` | Match posprint's `POSPRINT_DOTS`; 384 for 58mm paper |
 | `POSPRINTWEB_COOLDOWN_SECONDS` | `60` | Minimum gap between prints from one IP |
 | `POSPRINTWEB_PER_IP_DAILY` | `5` | Per-IP daily cap. `0` disables |

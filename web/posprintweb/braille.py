@@ -60,6 +60,7 @@ class Art:
     cols: int
     rows: int
     scale: int
+    ink: float         # fraction of dots that are black, 0.0 - 1.0
 
     @property
     def height_dots(self) -> int:
@@ -99,6 +100,31 @@ def decode(lines: list[str]) -> Image.Image:
     return img
 
 
+def ink_fraction(lines: list[str]) -> float:
+    """How much of the picture is black, 0.0 to 1.0.
+
+    Each braille character carries eight dots, so this is just the set bits
+    over the total bits - the same number as black pixels over total pixels,
+    without building the image.
+
+    It matters because a thermal head makes a dot by heating an element, and a
+    solid black area holds every element on at once. The printer survives it -
+    they throttle rather than burn - but it prints slowly, drains the roll's
+    contrast and, for a public endpoint, is the cheapest way to make the
+    machine work hard. Line art is around 12%; a dithered photograph runs 30-50%;
+    a solid rectangle is 100%, which is the thing worth refusing.
+    """
+    dots = 0
+    cells = 0
+    for line in lines:
+        for ch in line:
+            bits = ord(ch) - BASE
+            if 0 <= bits <= 0xFF:
+                dots += bin(bits).count("1")
+                cells += 1
+    return dots / (cells * 8) if cells else 0.0
+
+
 def scale_for(cols: int, rows: int, *, printer_dots: int, max_scale: int,
               max_dots: int) -> int:
     """Whole-number enlargement only.
@@ -116,7 +142,7 @@ def scale_for(cols: int, rows: int, *, printer_dots: int, max_scale: int,
 
 
 def prepare(text: str, *, max_cols: int, max_rows: int, printer_dots: int,
-            max_scale: int, max_dots: int) -> Art:
+            max_scale: int, max_dots: int, max_ink: float = 1.0) -> Art:
     """Validate and render, or raise Rejected with something a visitor can act on."""
     stray = {ch for ch in text if not _ALLOWED_ALONGSIDE.match(ch)}
     if stray:
@@ -139,6 +165,15 @@ def prepare(text: str, *, max_cols: int, max_rows: int, printer_dots: int,
     if rows > max_rows:
         raise Rejected(f"That art is {rows} lines tall; the limit is {max_rows}.")
 
+    ink = ink_fraction(lines)
+    if ink > max_ink:
+        raise Rejected(
+            f"That picture is {ink * 100:.0f}% solid black and the limit is "
+            f"{max_ink * 100:.0f}%. A thermal printer makes black by heating "
+            f"the paper, so a filled-in image prints slowly and runs hot. Try "
+            f"something more like line art."
+        )
+
     scale = scale_for(cols, rows, printer_dots=printer_dots,
                       max_scale=max_scale, max_dots=max_dots)
     img = decode(lines)
@@ -147,4 +182,4 @@ def prepare(text: str, *, max_cols: int, max_rows: int, printer_dots: int,
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return Art(text="\n".join(lines), png=buf.getvalue(), cols=cols, rows=rows,
-               scale=scale)
+               scale=scale, ink=ink)

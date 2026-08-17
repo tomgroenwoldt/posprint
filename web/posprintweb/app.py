@@ -243,6 +243,7 @@ async def status(request: Request) -> dict:
             "max_rows": cfg.braille_max_rows,
             "max_scale": cfg.braille_max_scale,
             "max_dots": cfg.braille_max_dots,
+            "max_ink": cfg.braille_max_ink,
             "printer_dots": cfg.printer_dots,
         },
         "you": {
@@ -286,6 +287,7 @@ async def print_message(
                 printer_dots=cfg.printer_dots,
                 max_scale=cfg.braille_max_scale,
                 max_dots=cfg.braille_max_dots,
+                max_ink=cfg.braille_max_ink / 100,
             )
             message = art.text
         else:

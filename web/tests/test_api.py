@@ -233,7 +233,7 @@ def test_braille_prints_as_a_picture(client, fake):
     It bypasses max_chars and the codepage check entirely: what reaches the
     printer is a decoded bitmap, not text.
     """
-    art = "\n".join("⠿" * 20 for _ in range(10))
+    art = "\n".join("⠃" * 20 for _ in range(10))
     r = send(client, message=art)
     assert r.status_code == 200
     job = fake.jobs[0]
@@ -243,7 +243,7 @@ def test_braille_prints_as_a_picture(client, fake):
 
 def test_braille_may_exceed_the_text_character_limit(client, fake):
     """1200 cells is far past max_chars=200, and entirely legitimate."""
-    art = "\n".join("⠿" * 60 for _ in range(20))
+    art = "\n".join("⠃" * 60 for _ in range(20))
     assert len(art) > 200
     assert send(client, message=art).status_code == 200
 

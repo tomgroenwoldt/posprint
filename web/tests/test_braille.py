@@ -10,7 +10,8 @@ from PIL import Image
 from posprintweb import braille
 from posprintweb.filters import Rejected
 
-LIMITS = dict(max_cols=72, max_rows=40, printer_dots=576, max_scale=8, max_dots=640)
+LIMITS = dict(max_cols=72, max_rows=40, printer_dots=576, max_scale=8,
+              max_dots=640, max_ink=0.55)
 
 # A 2x1 grid: dot 1 (top-left) in the first cell, dot 8 (bottom-right) in the
 # second. Enough to pin orientation without a fixture file.
@@ -41,7 +42,7 @@ def test_grid_shape():
 
 
 def test_prepare_produces_a_png():
-    art = braille.prepare("⠿⠿\n⠿⠿", **LIMITS)
+    art = braille.prepare("⠃⠃\n⠃⠃", **LIMITS)
     assert art.cols == 2 and art.rows == 2
     img = Image.open(io.BytesIO(art.png))
     assert img.size == (4 * art.scale, 8 * art.scale)
@@ -54,7 +55,7 @@ def test_text_mixed_into_art_is_refused():
 
 
 def test_spaces_are_allowed_as_padding():
-    art = braille.prepare("⠿⠿\n⠿  ", **LIMITS)
+    art = braille.prepare("⠃⠃\n⠃  ", **LIMITS)
     assert art.rows == 2
 
 
@@ -87,8 +88,42 @@ def test_small_art_is_not_blown_up_to_fill_the_head():
     assert scale == 8          # max_scale, not 576 // 8 == 72
 
 
+# -- ink coverage ---------------------------------------------------------
+#
+# A thermal head makes black by heating, so a filled-in picture prints slowly
+# and runs hot. Measured on real samples: line art ~12%, a dithered photograph
+# 30-50%, a solid rectangle 100%.
+
+
+def test_ink_fraction_counts_dots():
+    assert braille.ink_fraction(["⠀"]) == 0.0        # blank cell
+    assert braille.ink_fraction(["⣿"]) == 1.0        # all eight dots
+    assert braille.ink_fraction(["⠏"]) == 0.5        # four of eight
+
+
+def test_solid_black_is_refused():
+    art = "\n".join("⣿" * 20 for _ in range(10))
+    with pytest.raises(Rejected, match="solid black"):
+        braille.prepare(art, **LIMITS)
+
+
+def test_line_art_is_well_under_the_limit():
+    """The common case must not be anywhere near the threshold."""
+    art = "\n".join("⠁⠂⠄⡀⢀⠈⠐⠠" * 4 for _ in range(10))
+    assert braille.prepare(art, **LIMITS).ink < 0.2
+
+
+def test_exactly_half_filled_art_still_prints():
+    """50% is 'every other dot' - an ordinary dithering pattern, not abuse.
+
+    This is why the limit is 55 and not 50.
+    """
+    art = "\n".join("⠏" * 20 for _ in range(10))
+    assert braille.prepare(art, **LIMITS).ink == 0.5
+
+
 def test_blank_lines_are_trimmed_but_padded_cells_are_not():
     """U+2800 is a blank cell, not whitespace - it holds the width."""
-    art = braille.prepare("\n\n⠿⠀⠀\n\n", **LIMITS)
+    art = braille.prepare("\n\n⠃⠀⠀\n\n", **LIMITS)
     assert art.rows == 1
     assert art.cols == 3

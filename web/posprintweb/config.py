@@ -118,6 +118,12 @@ class Config:
     braille_max_rows: int = 40
     braille_max_scale: int = 8     # keeps small drawings from filling the roll
     braille_max_dots: int = 640    # ~80mm: the paper budget for one picture
+    # Percent of dots allowed to be black. A thermal head makes black by
+    # heating, so a filled-in image prints slowly and runs hot. Line art is
+    # ~12% and a dithered photograph 30-50%, so this refuses the solid
+    # rectangle without refusing real pictures. Note 50 would be too tight:
+    # that is exactly "every other dot", an ordinary dithering pattern.
+    braille_max_ink: int = 55
     printer_dots: int = 576        # match posprint's POSPRINT_DOTS (384 for 58mm)
 
     # -- abuse controls ---------------------------------------------------
@@ -234,6 +240,7 @@ class Config:
             braille_max_rows=_env_int("POSPRINTWEB_BRAILLE_MAX_ROWS", 40),
             braille_max_scale=_env_int("POSPRINTWEB_BRAILLE_MAX_SCALE", 8),
             braille_max_dots=_env_int("POSPRINTWEB_BRAILLE_MAX_DOTS", 640),
+            braille_max_ink=_env_int("POSPRINTWEB_BRAILLE_MAX_INK", 55),
             printer_dots=_env_int("POSPRINTWEB_PRINTER_DOTS", 576),
             cooldown_seconds=_env_int("POSPRINTWEB_COOLDOWN_SECONDS", 60),
             per_ip_daily=_env_int("POSPRINTWEB_PER_IP_DAILY", 5),
