@@ -188,6 +188,40 @@ Getting that order wrong is the one mistake with teeth:
 Tailscale Funnel works too and is less setup, but gives you no request-level
 controls of its own.
 
+## Gallery
+
+`/gallery` shows messages you have approved by hand. **Nothing appears there
+until you approve it** — the back catalogue and every new print start as `new`,
+which is the safe direction given what turns up.
+
+Review them at **`/admin#<your admin key>`**:
+
+```
+https://print.example.com/admin#Xf3k...
+```
+
+The key travels in the URL *fragment*, which browsers never send to the server
+— so unlike a query string it cannot appear in Caddy's access log, an upstream
+request line or a `Referer` header. The page moves it into `sessionStorage` and
+rewrites the address bar via `replaceState`, so it is gone from the URL and the
+back stack before you have finished reading the first message. From there it
+travels as the same `X-Admin-Key` header the API has always used: no cookie, no
+session, no second credential format.
+
+Approve puts a message on the public page. Hide leaves it printed and logged
+but never shown. Neither reprints anything, and both are reversible.
+
+Two things deliberately cannot be approved:
+
+- **Shadowed messages.** The whole point of the quiet filter is that they did
+  not happen, so they never reach the queue.
+- **Failed prints.** They produced no paper; there is nothing to show off.
+
+`state` and `gallery` are separate columns because "did it print" and "should
+strangers see it" are different questions. `/api/gallery` is public and its
+projection omits `ip` at the SQL level, so the column is not one typo away from
+a page anyone can read.
+
 ## The quiet filter
 
 There are two wordlists and the difference between them is the point.
@@ -387,6 +421,11 @@ All settings are environment variables, read once at startup from
 | `GET /` | — | The page |
 | `GET /api/status` | — | Limits, printer state, your remaining quota |
 | `POST /api/print` | — | `{"message": "...", "name": "..."}` |
+| `GET /gallery` | — | Approved messages |
+| `GET /api/gallery` | — | `?limit=&before=` — keyset paged. Never includes `ip` |
+| `GET /admin` | — | Review page shell. Inert; data comes from the routes below |
+| `GET /api/admin/queue` | `X-Admin-Key` | Printed messages awaiting a decision |
+| `POST /api/admin/gallery` | `X-Admin-Key` | `{"id": 12, "action": "approve"\|"hide"\|"reset"}` |
 | `GET /admin/log` | `X-Admin-Key` | Recent prints with IP and body. 404s without the key |
 | `GET /healthz` | — | For the tunnel's health check |
 

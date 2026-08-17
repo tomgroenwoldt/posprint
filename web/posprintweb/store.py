@@ -41,7 +41,18 @@ CREATE INDEX IF NOT EXISTS prints_day   ON prints (day);
 MIGRATIONS = [
     "ALTER TABLE prints ADD COLUMN fingerprint TEXT NOT NULL DEFAULT ''",
     "CREATE INDEX IF NOT EXISTS prints_fp_ts ON prints (fingerprint, ts)",
+    # Whether something printed and whether it belongs on a public page are
+    # different questions, so this is its own column rather than another
+    # `state`. Existing rows default to 'new', which leaves the whole back
+    # catalogue unapproved - the safe direction.
+    "ALTER TABLE prints ADD COLUMN gallery TEXT NOT NULL DEFAULT 'new'",
+    "CREATE INDEX IF NOT EXISTS prints_gallery ON prints (gallery, id)",
 ]
+
+# Only something that actually reached paper can be shown off. In particular a
+# 'shadowed' message must never reach the review queue: the entire point of
+# that filter is that it quietly does not exist.
+GALLERY_ELIGIBLE = "printed"
 
 
 def fingerprint(text: str) -> str:
@@ -265,3 +276,70 @@ class Store:
                 (max(1, min(limit, 500)),),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # -- gallery ----------------------------------------------------------
+
+    def review_queue(self, limit: int = 50) -> list[dict]:
+        """Printed messages waiting on a decision. Includes the IP: this is
+        the owner's view, and knowing that six of these came from one address
+        is most of what makes a decision easy."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, ts, ip, name, message FROM prints "
+                "WHERE state = ? AND gallery = 'new' ORDER BY id DESC LIMIT ?",
+                (GALLERY_ELIGIBLE, max(1, min(limit, 200))),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def gallery(self, limit: int = 30, before_id: int | None = None) -> list[dict]:
+        """Approved entries, newest first.
+
+        Keyset pagination on `id` rather than OFFSET: approving something while
+        a visitor is paging would shift every later page by one and silently
+        skip an entry. No `ip` in the projection - this feeds a public page and
+        the column should not be one typo away from it.
+        """
+        limit = max(1, min(limit, 100))
+        with self._lock:
+            if before_id is None:
+                rows = self._db.execute(
+                    "SELECT id, ts, name, message FROM prints "
+                    "WHERE gallery = 'approved' ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            else:
+                rows = self._db.execute(
+                    "SELECT id, ts, name, message FROM prints "
+                    "WHERE gallery = 'approved' AND id < ? ORDER BY id DESC LIMIT ?",
+                    (before_id, limit),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_gallery(self, row_id: int, value: str) -> bool:
+        """Approve or hide one row. False if there was nothing eligible to change.
+
+        The state check lives in the UPDATE rather than in a read-then-write, so
+        there is no window in which a row stops being eligible between the two.
+        """
+        if value not in ("approved", "hidden", "new"):
+            raise ValueError(f"unknown gallery value {value!r}")
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE prints SET gallery = ? WHERE id = ? AND state = ?",
+                (value, row_id, GALLERY_ELIGIBLE),
+            )
+            self._db.commit()
+            return cur.rowcount > 0
+
+    def review_counts(self) -> dict[str, int]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT gallery, COUNT(*) AS n FROM prints WHERE state = ? "
+                "GROUP BY gallery",
+                (GALLERY_ELIGIBLE,),
+            ).fetchall()
+        counts = {"new": 0, "approved": 0, "hidden": 0}
+        for row in rows:
+            if row["gallery"] in counts:
+                counts[row["gallery"]] = int(row["n"])
+        return counts

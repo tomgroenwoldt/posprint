@@ -41,7 +41,7 @@ from .filters import (
     clean,
     printable_charset,
 )
-from .models import PrintMessage
+from .models import GalleryDecision, PrintMessage
 from .store import QuotaExceeded, Store
 from .upstream import Upstream, UpstreamError
 
@@ -453,8 +453,46 @@ async def admin_log(limit: int = 50) -> dict:
     return {"prints": store.recent(limit)}
 
 
-def _versioned_index() -> str:
-    """index.html with a build stamp on each asset URL.
+# -- gallery --------------------------------------------------------------
+
+
+@app.get("/api/gallery", summary="Messages approved for the public gallery")
+async def api_gallery(limit: int = 30, before: int | None = None) -> dict:
+    """Public. Nothing is here until it has been approved by hand.
+
+    The store does the projection, so `ip` is not one typo away from a page
+    strangers can read.
+    """
+    limit = max(1, min(limit, 100))          # mirrors the clamp in the store
+    entries = store.gallery(limit, before)
+    # Keyset cursor: the caller asks for what comes *before* this id. Only
+    # offered when the page came back full, or every gallery of any size would
+    # advertise more to come and the page would show a "Show older" button that
+    # fetches nothing.
+    cursor = entries[-1]["id"] if len(entries) == limit else None
+    return {"entries": entries, "next": cursor, "columns": cfg.columns}
+
+
+@app.get("/api/admin/queue", dependencies=[Depends(require_admin)],
+         include_in_schema=False)
+async def admin_queue(limit: int = 50) -> dict:
+    return {"queue": store.review_queue(limit), "counts": store.review_counts()}
+
+
+@app.post("/api/admin/gallery", dependencies=[Depends(require_admin)],
+          include_in_schema=False)
+async def admin_set_gallery(req: GalleryDecision) -> dict:
+    value = {"approve": "approved", "hide": "hidden", "reset": "new"}[req.action]
+    if not store.set_gallery(req.id, value):
+        # Either no such row, or one that never reached paper. Both are the
+        # caller asking for something that does not exist.
+        raise HTTPException(status_code=404, detail="not found")
+    log.info("gallery: %s -> %s", req.id, value)
+    return {"ok": True, "id": req.id, "gallery": value, "counts": store.review_counts()}
+
+
+def _versioned_page(name: str) -> str:
+    """One HTML page with a build stamp on each asset URL.
 
     no-cache on /static makes a deploy reach people after one revalidation, but
     a visitor whose browser cached an asset *before* that header existed is
@@ -467,24 +505,38 @@ def _versioned_index() -> str:
     anyone's cache. That closes the gap for people already stuck, and means
     future deploys land instantly instead of after a revalidation.
     """
-    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    html = (STATIC / name).read_text(encoding="utf-8")
     stamp = max(int(p.stat().st_mtime) for p in STATIC.glob("*.*"))
-    for asset in ("app.js", "style.css"):
+    for asset in ("app.js", "gallery.js", "admin.js", "style.css"):
         html = html.replace(f"/static/{asset}", f"/static/{asset}?v={stamp}")
     return html
 
 
 # Built once at import: the files cannot change under a running service, since
 # install.sh restarts it.
-INDEX_HTML = _versioned_index()
+PAGES = {name: _versioned_page(f"{name}.html") for name in ("index", "gallery", "admin")}
+
+# no-store on every page: they embed nothing per-visitor, but a stale copy after
+# a limit change is confusing, and it is what makes the asset stamping work.
+_PAGE_HEADERS = {"Cache-Control": "no-store"}
 
 
 @app.get("/", include_in_schema=False)
 async def index() -> HTMLResponse:
-    # no-store: the page embeds nothing per-visitor, but a stale copy after a
-    # limit change is confusing, and this is not a high-traffic site. It is
-    # also what makes the asset stamping above work.
-    return HTMLResponse(INDEX_HTML, headers={"Cache-Control": "no-store"})
+    return HTMLResponse(PAGES["index"], headers=_PAGE_HEADERS)
+
+
+@app.get("/gallery", include_in_schema=False)
+async def gallery_page() -> HTMLResponse:
+    return HTMLResponse(PAGES["gallery"], headers=_PAGE_HEADERS)
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_page() -> HTMLResponse:
+    """An inert shell. Every byte of data on it arrives through the authed
+    endpoints below, so serving it unauthenticated gives away only that an
+    admin page exists - not what is in it."""
+    return HTMLResponse(PAGES["admin"], headers=_PAGE_HEADERS)
 
 
 class RevalidatingStatic(StaticFiles):

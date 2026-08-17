@@ -67,6 +67,42 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
 .status--pending::before { background: var(--muted); animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity: .25; } }
 
+/* -- nav ---------------------------------------------------------------- */
+
+.nav { display: flex; gap: .4rem; margin: 0 0 1.2rem; }
+.nav__link {
+  font-size: .85rem; padding: .3rem .7rem; border-radius: 999px;
+  text-decoration: none; color: var(--muted);
+  border: 1px solid var(--line);
+}
+.nav__link:hover { color: var(--ink); }
+.nav__link--current {
+  color: var(--paper); background: var(--ink); border-color: var(--ink);
+}
+
+/* -- gallery ------------------------------------------------------------ */
+
+.gallery { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; }
+.gallery__item {
+  border: 1px solid var(--line); border-radius: .4rem;
+  background: var(--paper); padding: .8rem .9rem;
+}
+/* Messages are written for a 48-column roll, so they are shown in the same
+   monospace at the same width. overflow-x keeps a wide line from stretching
+   the page rather than scrolling inside its own card. */
+.gallery__paper {
+  font-family: var(--mono); font-size: .8rem; line-height: 1.35;
+  margin: 0; white-space: pre; overflow-x: auto;
+}
+.gallery__meta { margin: .6rem 0 0; font-size: .78rem; color: var(--muted); }
+.gallery__more { margin: 1.2rem 0 0; }
+.review__actions { display: flex; gap: .5rem; margin: .7rem 0 0; }
+.review__actions button { width: auto; padding: .35rem 1rem; font-size: .85rem; }
+.button--quiet {
+  background: transparent; color: var(--muted); border: 1px solid var(--line);
+}
+.button--quiet:hover { color: var(--ink); }
+
 /* -- live camera -------------------------------------------------------- */
 
 .camera { margin: 1.6rem 0 0; }

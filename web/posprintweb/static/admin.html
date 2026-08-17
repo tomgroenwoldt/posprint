@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🧾</text></svg>">
+</head>
+<body>
+<main>
+  <nav class="nav" aria-label="Sections">
+    <a href="/" class="nav__link">Print</a>
+    <a href="/gallery" class="nav__link">Gallery</a>
+    <span class="nav__link nav__link--current">Review</span>
+  </nav>
+
+  <header>
+    <h1>Review</h1>
+    <p id="counts" class="muted"></p>
+  </header>
+
+  <p id="error" class="error" hidden></p>
+
+  <ul id="queue" class="gallery"></ul>
+
+  <p id="empty" class="muted" hidden>Nothing waiting. All caught up.</p>
+
+  <footer>
+    <p class="muted">Approving puts a message on the public gallery. Hiding
+       leaves it printed and logged but never shown. Neither reprints anything.</p>
+  </footer>
+</main>
+<script src="/static/admin.js"></script>
+</body>
+</html>

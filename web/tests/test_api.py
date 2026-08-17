@@ -187,6 +187,86 @@ def test_static_assets_must_be_revalidated(client):
     assert r.headers.get("etag")
 
 
+# -- gallery over HTTP ----------------------------------------------------
+
+
+def test_admin_endpoints_are_hidden_without_a_key(client):
+    """404, not 401: a stranger should not learn the endpoint exists."""
+    assert client.get("/api/admin/queue").status_code == 404
+    assert client.post("/api/admin/gallery",
+                       json={"id": 1, "action": "approve"}).status_code == 404
+
+
+def test_gallery_is_empty_until_approved(client):
+    send(client, message="hello gallery")
+    assert client.get("/api/gallery").json()["entries"] == []
+
+    queue = client.get("/api/admin/queue",
+                       headers={"X-Admin-Key": "admin-secret"}).json()
+    assert len(queue["queue"]) == 1
+    assert queue["counts"]["new"] == 1
+
+    row_id = queue["queue"][0]["id"]
+    r = client.post("/api/admin/gallery", json={"id": row_id, "action": "approve"},
+                    headers={"X-Admin-Key": "admin-secret"})
+    assert r.status_code == 200
+
+    entries = client.get("/api/gallery").json()["entries"]
+    assert [e["message"] for e in entries] == ["hello gallery"]
+
+
+def test_the_public_gallery_leaks_no_addresses(client):
+    send(client, message="hello gallery", ip="203.0.113.9")
+    queue = client.get("/api/admin/queue",
+                       headers={"X-Admin-Key": "admin-secret"}).json()
+    client.post("/api/admin/gallery",
+                json={"id": queue["queue"][0]["id"], "action": "approve"},
+                headers={"X-Admin-Key": "admin-secret"})
+
+    body = client.get("/api/gallery").text
+    assert "203.0.113.9" not in body
+    assert '"ip"' not in body
+
+
+def test_a_short_page_offers_no_cursor(client):
+    """Otherwise the page shows a 'Show older' button that fetches nothing."""
+    send(client, message="only one")
+    queue = client.get("/api/admin/queue",
+                       headers={"X-Admin-Key": "admin-secret"}).json()
+    client.post("/api/admin/gallery",
+                json={"id": queue["queue"][0]["id"], "action": "approve"},
+                headers={"X-Admin-Key": "admin-secret"})
+
+    body = client.get("/api/gallery").json()
+    assert len(body["entries"]) == 1
+    assert body["next"] is None
+
+    # A full page does offer one.
+    full = client.get("/api/gallery?limit=1").json()
+    assert full["next"] == full["entries"][0]["id"]
+
+
+def test_approving_something_unprintable_is_a_404(client):
+    r = client.post("/api/admin/gallery", json={"id": 4242, "action": "approve"},
+                    headers={"X-Admin-Key": "admin-secret"})
+    assert r.status_code == 404
+
+
+def test_the_pages_are_served(client):
+    for path in ("/", "/gallery", "/admin"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert "text/html" in r.headers["content-type"]
+        assert r.headers["cache-control"] == "no-store"
+
+
+def test_the_admin_shell_contains_no_data_and_no_key(client):
+    """It is served unauthenticated, so it had better be inert."""
+    body = client.get("/admin").text
+    assert "admin-secret" not in body
+    assert "X-Admin-Key" not in body
+
+
 def test_admin_log_is_hidden_without_a_key(client):
     assert client.get("/admin/log").status_code == 404
 

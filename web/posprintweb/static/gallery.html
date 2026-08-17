@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gallery — things people printed</title>
+<meta name="description" content="Messages strangers sent to a real thermal receipt printer.">
+<meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🧾</text></svg>">
+</head>
+<body>
+<main>
+  <nav class="nav" aria-label="Sections">
+    <a href="/" class="nav__link">Print</a>
+    <a href="/gallery" class="nav__link nav__link--current" aria-current="page">Gallery</a>
+  </nav>
+
+  <header>
+    <h1>Gallery</h1>
+    <p class="blurb">Things people sent to the printer, that I liked enough to
+       keep. Everything here was picked by hand.</p>
+  </header>
+
+  <p id="empty" class="muted" hidden>Nothing here yet.</p>
+
+  <ul id="entries" class="gallery"></ul>
+
+  <p class="gallery__more">
+    <button id="more" type="button" hidden>Show older</button>
+  </p>
+
+  <footer>
+    <p class="muted">Only approved messages appear here, so this is not
+       everything that gets printed.</p>
+  </footer>
+</main>
+<script src="/static/gallery.js"></script>
+</body>
+</html>
