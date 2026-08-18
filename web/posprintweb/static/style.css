@@ -124,6 +124,21 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
   display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.8rem;
 }
 
+/* -- day filter --------------------------------------------------------- */
+
+.filter {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: .6rem;
+  margin: 0 0 1.4rem;
+}
+.filter__label, .filter__count { font-size: .85rem; color: var(--muted); }
+.filter__select {
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink); background: var(--paper);
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: .3rem .6rem;
+}
+.filter__select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 /* -- tabs --------------------------------------------------------------- */
 
 .tabs { display: flex; gap: .4rem; margin: 0 0 1rem; }

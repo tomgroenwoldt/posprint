@@ -47,6 +47,10 @@ MIGRATIONS = [
     # catalogue unapproved - the safe direction.
     "ALTER TABLE prints ADD COLUMN gallery TEXT NOT NULL DEFAULT 'new'",
     "CREATE INDEX IF NOT EXISTS prints_gallery ON prints (gallery, id)",
+    # The gallery can be narrowed to one day, and the id stays in the index so
+    # a filtered page still walks the keyset cursor rather than sorting.
+    "CREATE INDEX IF NOT EXISTS prints_gallery_day "
+    "ON prints (gallery, day, id)",
 ]
 
 # Only something that actually reached paper can be shown off. In particular a
@@ -297,28 +301,57 @@ class Store:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def gallery(self, limit: int = 30, before_id: int | None = None) -> list[dict]:
-        """Approved entries, newest first.
+    def gallery(
+        self,
+        limit: int = 30,
+        before_id: int | None = None,
+        day: str | None = None,
+    ) -> list[dict]:
+        """Approved entries, newest first, optionally from one day.
 
         Keyset pagination on `id` rather than OFFSET: approving something while
         a visitor is paging would shift every later page by one and silently
-        skip an entry. No `ip` in the projection - this feeds a public page and
-        the column should not be one typo away from it.
+        skip an entry. The cursor and the day filter compose - `id < ?` narrows
+        within whatever the day clause already selected - so paging inside a
+        day is the same walk as paging across all of them.
+
+        `day` is the printer's local date, the same string the row was written
+        with, so a message belongs to the day it came out rather than to some
+        recomputed UTC one. It is matched, never interpolated.
+
+        No `ip` in the projection: this feeds a public page and the column
+        should not be one typo away from it.
         """
         limit = max(1, min(limit, 100))
+        where = ["gallery = 'approved'"]
+        params: list = []
+        if day is not None:
+            where.append("day = ?")
+            params.append(day)
+        if before_id is not None:
+            where.append("id < ?")
+            params.append(before_id)
+        params.append(limit)
+        sql = (
+            "SELECT id, ts, name, message FROM prints WHERE "
+            + " AND ".join(where)
+            + " ORDER BY id DESC LIMIT ?"
+        )
         with self._lock:
-            if before_id is None:
-                rows = self._db.execute(
-                    "SELECT id, ts, name, message FROM prints "
-                    "WHERE gallery = 'approved' ORDER BY id DESC LIMIT ?",
-                    (limit,),
-                ).fetchall()
-            else:
-                rows = self._db.execute(
-                    "SELECT id, ts, name, message FROM prints "
-                    "WHERE gallery = 'approved' AND id < ? ORDER BY id DESC LIMIT ?",
-                    (before_id, limit),
-                ).fetchall()
+            rows = self._db.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def gallery_days(self) -> list[dict]:
+        """Every day that has something approved on it, newest first.
+
+        This is what the day filter is built from, so a visitor can only pick a
+        day that has entries and the control never offers an empty result.
+        """
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT day, COUNT(*) AS count FROM prints "
+                "WHERE gallery = 'approved' GROUP BY day ORDER BY day DESC"
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def set_gallery(self, row_id: int, value: str) -> bool:

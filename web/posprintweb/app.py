@@ -16,13 +16,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import (Depends, FastAPI, Header, HTTPException, Query, Request,
+                     Response)
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -458,20 +460,31 @@ async def admin_log(limit: int = 50) -> dict:
 
 
 @app.get("/api/gallery", summary="Messages approved for the public gallery")
-async def api_gallery(limit: int = 30, before: int | None = None) -> dict:
+async def api_gallery(
+    limit: int = 30,
+    before: int | None = None,
+    day: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict:
     """Public. Nothing is here until it has been approved by hand.
 
     The store does the projection, so `ip` is not one typo away from a page
-    strangers can read.
+    strangers can read. `day` is shape-checked here and matched as a parameter
+    there, so a malformed one is a 422 and never reaches SQL.
     """
     limit = max(1, min(limit, 100))          # mirrors the clamp in the store
-    entries = store.gallery(limit, before)
+    entries = store.gallery(limit, before, day)
     # Keyset cursor: the caller asks for what comes *before* this id. Only
     # offered when the page came back full, or every gallery of any size would
     # advertise more to come and the page would show a "Show older" button that
     # fetches nothing.
     cursor = entries[-1]["id"] if len(entries) == limit else None
-    return {"entries": entries, "next": cursor, **_render_context()}
+    body = {"entries": entries, "next": cursor, "day": day, **_render_context()}
+    # The day list is the same for every page of a walk and only changes when
+    # something is approved, so it rides along with the first request and not
+    # with each "Show older" after it.
+    if before is None:
+        body["days"] = store.gallery_days()
+    return body
 
 
 def _render_context() -> dict:
@@ -529,9 +542,15 @@ def _versioned_page(name: str) -> str:
     """
     html = (STATIC / name).read_text(encoding="utf-8")
     stamp = max(int(p.stat().st_mtime) for p in STATIC.glob("*.*"))
-    for asset in ("app.js", "gallery.js", "admin.js", "style.css"):
-        html = html.replace(f"/static/{asset}", f"/static/{asset}?v={stamp}")
-    return html
+    # Every reference, rather than a hand-kept list of filenames: receipt.js
+    # was missing from one, and that is the file where a stale copy does the
+    # most damage - it is the renderer both the preview and the gallery use, so
+    # an old one would have them disagree about the same message.
+    return re.sub(
+        r"/static/([A-Za-z0-9_.-]+\.(?:js|css))",
+        lambda m: f"/static/{m.group(1)}?v={stamp}",
+        html,
+    )
 
 
 # Built once at import: the files cannot change under a running service, since

@@ -159,3 +159,75 @@ def test_counts(store):
     store.set_gallery(a, "approved")
     store.set_gallery(b, "hidden")
     assert store.review_counts() == {"new": 1, "approved": 1, "hidden": 1}
+
+
+# -- filtering by day -----------------------------------------------------
+#
+# The store is built with UTC in these tests, so `now` maps to a day directly:
+# 1970-01-01 is the first 86400 seconds and so on. The dates are unromantic but
+# the arithmetic is checkable by hand, which matters more here.
+
+DAY_ONE, ISO_ONE = 1_000.0, "1970-01-01"
+DAY_TWO, ISO_TWO = 86_400.0 + 1_000.0, "1970-01-02"
+
+
+def approved(store, message, now):
+    row = printed(store, message, now=now)
+    store.set_gallery(row, "approved")
+    return row
+
+
+def test_a_day_returns_only_its_own_entries(store):
+    approved(store, "monday", DAY_ONE)
+    approved(store, "tuesday", DAY_TWO)
+
+    assert [e["message"] for e in store.gallery(day=ISO_ONE)] == ["monday"]
+    assert [e["message"] for e in store.gallery(day=ISO_TWO)] == ["tuesday"]
+    assert len(store.gallery()) == 2
+
+
+def test_the_day_list_counts_only_what_is_approved(store):
+    approved(store, "monday", DAY_ONE)
+    approved(store, "also monday", DAY_ONE)
+    approved(store, "tuesday", DAY_TWO)
+    printed(store, "monday but unapproved", now=DAY_ONE)      # still 'new'
+    store.set_gallery(printed(store, "hidden one", now=DAY_TWO), "hidden")
+
+    assert store.gallery_days() == [
+        {"day": ISO_TWO, "count": 1},
+        {"day": ISO_ONE, "count": 2},
+    ]
+
+
+def test_a_day_with_nothing_approved_is_not_offered(store):
+    """The filter is built from this list, so every option must lead somewhere."""
+    printed(store, "never approved", now=DAY_ONE)
+    assert store.gallery_days() == []
+
+
+def test_paging_inside_a_day_is_disjoint_and_terminates(store):
+    for i in range(5):
+        approved(store, f"monday {i}", DAY_ONE + i)
+    approved(store, "tuesday", DAY_TWO)
+
+    first = store.gallery(limit=2, day=ISO_ONE)
+    second = store.gallery(limit=2, day=ISO_ONE, before_id=first[-1]["id"])
+    third = store.gallery(limit=2, day=ISO_ONE, before_id=second[-1]["id"])
+
+    assert [e["message"] for e in first] == ["monday 4", "monday 3"]
+    assert [e["message"] for e in second] == ["monday 2", "monday 1"]
+    assert [e["message"] for e in third] == ["monday 0"]
+    # The other day never leaks in, however far the cursor walks.
+    assert not any("tuesday" in e["message"] for e in first + second + third)
+
+
+def test_an_unknown_day_is_empty_rather_than_an_error(store):
+    approved(store, "monday", DAY_ONE)
+    assert store.gallery(day="1999-12-31") == []
+
+
+def test_the_day_is_matched_not_interpolated(store):
+    """A day that reaches the store is a parameter, whatever it contains."""
+    approved(store, "monday", DAY_ONE)
+    assert store.gallery(day="' OR 1=1 --") == []
+    assert len(store.gallery()) == 1

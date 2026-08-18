@@ -219,6 +219,33 @@ Three lists, and every decision is reversible:
 `hidden` is a state rather than a delete, so taking something down does not
 also destroy the record of what was sent. Nothing here reprints anything.
 
+Slips are drawn at the width of the roll rather than the width of the page —
+48 characters and no more, which is what a till roll is. The serrated ends are
+`::before`/`::after` on `.paper`, so any page that uses the class gets them.
+
+### Filtering and paging
+
+The gallery can be narrowed to one day, and the day lives in the URL:
+
+```
+https://print.example.com/gallery?day=2026-08-18
+```
+
+so a day can be linked to and the back button walks between days. The filter is
+built from `gallery_days()` — the days that actually have something approved on
+them — so every option in the control leads somewhere and none of them returns
+an empty page. `day` is the printer's local date as written on the row, so a
+message belongs to the day it came out rather than to a recomputed UTC one.
+
+Paging is keyset on `id`, never `OFFSET`: approving something while a visitor is
+part-way down would shift every later page by one and silently skip an entry.
+The cursor and the day compose, so paging inside a day is the same walk as
+paging across all of them. `?limit=` caps at 100.
+
+The day list rides along with the *first* page only. It cannot change while
+paging, so sending it with every "Show older" would be waste — and rebuilding
+the control mid-walk would reset the one the visitor is looking at.
+
 Entries are drawn by `Receipt.render` in `static/receipt.js` — the same
 function the print page uses for its live preview. Both surfaces therefore show
 the same 48-column wrap, the same code-page degradation (`—` → `-`) and the
@@ -438,7 +465,7 @@ All settings are environment variables, read once at startup from
 | `GET /api/status` | — | Limits, printer state, your remaining quota |
 | `POST /api/print` | — | `{"message": "...", "name": "..."}` |
 | `GET /gallery` | — | Approved messages |
-| `GET /api/gallery` | — | `?limit=&before=` — keyset paged. Never includes `ip` |
+| `GET /api/gallery` | — | `?limit=&before=&day=` — keyset paged, `day` is `YYYY-MM-DD` or 422. Never includes `ip` |
 | `GET /admin` | — | Review page shell. Inert; data comes from the routes below |
 | `GET /api/admin/queue` | `X-Admin-Key` | Printed messages awaiting a decision |
 | `POST /api/admin/gallery` | `X-Admin-Key` | `{"id": 12, "action": "approve"\|"hide"\|"reset"}` |

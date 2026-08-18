@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -667,3 +668,60 @@ def test_quiet_window_wraps_midnight(override, hour, expected):
     override(quiet_start_hour=22, quiet_end_hour=8)
     when = datetime(2026, 8, 12, hour, 30)
     assert appmod.in_quiet_hours(when) is expected
+
+
+def test_the_gallery_can_be_narrowed_to_one_day(client):
+    """Every row the harness makes lands on the same day, so this checks the
+    plumbing - the store tests cover the filtering across days."""
+    key = {"X-Admin-Key": "admin-secret"}
+    send(client, message="one")
+    send(client, message="two", ip="203.0.113.2")
+    for row in client.get("/api/admin/queue", headers=key).json()["queue"]:
+        client.post("/api/admin/gallery",
+                    json={"id": row["id"], "action": "approve"}, headers=key)
+
+    body = client.get("/api/gallery").json()
+    assert body["day"] is None
+    assert [d["count"] for d in body["days"]] == [2]
+    today = body["days"][0]["day"]
+
+    same = client.get(f"/api/gallery?day={today}").json()
+    assert same["day"] == today
+    assert len(same["entries"]) == 2
+
+    other = client.get("/api/gallery?day=1999-12-31").json()
+    assert other["entries"] == []
+    # The list still comes back, or the page could not offer a way out.
+    assert other["days"] == body["days"]
+
+
+def test_the_day_list_rides_only_with_the_first_page(client):
+    """It cannot change while paging, so sending it again would be waste."""
+    key = {"X-Admin-Key": "admin-secret"}
+    send(client, message="one")
+    send(client, message="two", ip="203.0.113.2")
+    for row in client.get("/api/admin/queue", headers=key).json()["queue"]:
+        client.post("/api/admin/gallery",
+                    json={"id": row["id"], "action": "approve"}, headers=key)
+
+    first = client.get("/api/gallery?limit=1").json()
+    assert "days" in first
+    later = client.get(f"/api/gallery?limit=1&before={first['next']}").json()
+    assert "days" not in later
+    assert len(later["entries"]) == 1
+
+
+def test_a_malformed_day_never_reaches_the_store(client):
+    for bad in ("lol", "1999-1-1", "' OR 1=1 --", "2026-08-18 OR 1"):
+        assert client.get("/api/gallery", params={"day": bad}).status_code == 422
+
+
+def test_every_script_and_stylesheet_carries_a_build_stamp(client):
+    """A hand-kept list of filenames drifts; receipt.js fell off one. It is the
+    renderer both the preview and the gallery use, so a stale copy would have
+    the two disagree about the same message."""
+    for path in ("/", "/gallery", "/admin"):
+        html = client.get(path).text
+        assert "/static/" in html
+        for ref in re.findall(r'/static/[^"\']+', html):
+            assert "?v=" in ref, f"{ref} on {path} is not stamped"
