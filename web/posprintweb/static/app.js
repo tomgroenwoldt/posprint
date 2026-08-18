@@ -201,28 +201,176 @@ function updateCount() {
 
 /* -- live camera --------------------------------------------------------- */
 
-// The <img> holds one long-lived multipart connection, so it is attached once
-// and left alone. Re-assigning src on every status poll would tear down the
-// stream and reconnect twice a minute for no reason.
-let cameraAttached = false;
-let cameraRetry = null;
+// The feed is read with fetch and painted frame by frame, rather than pointed
+// at with <img src>. An <img> cannot report that a stream has stopped.
+//
+// Measured in Chrome against a stream ended three ways - closed cleanly, reset
+// mid-frame, and simply going silent - the element fires *no event at all* in
+// every case: no error, no abort, no stalled. It keeps complete === true, keeps
+// its naturalWidth, and goes on showing the last frame it received. Every
+// failure was indistinguishable from a working camera, so the error handler
+// that was supposed to reconnect could only ever fire before the first frame
+// arrived. Once you had a picture, a dead feed stayed dead until a reload.
+//
+// Reading the body here turns all three into one observable event: no frame
+// within CAMERA_TIMEOUT, or the body ending. Either one is a reconnect.
+
+// The server gives up on a stalled producer at 10s and ends the response, so
+// in practice the body ends first and this only covers a connection that is
+// open but silent - a dropped link, a sleeping laptop, a proxy holding a
+// socket nobody is feeding.
+const CAMERA_TIMEOUT = 15000;
+// Frames are tens of kilobytes. A buffer this size means the boundary scan has
+// lost sync, and without a ceiling it would grow until the tab died.
+const CAMERA_MAX_BUFFER = 8 * 1024 * 1024;
+
+let cameraAbort = null;          // the live connection, if there is one
+let cameraRetry = null;          // a pending reconnect, if there is one
 let cameraFailures = 0;
+
+const CRLF2 = new TextEncoder().encode("\r\n\r\n");
+
+function bytesIndexOf(haystack, needle, from) {
+  const last = haystack.length - needle.length;
+  outer: for (let i = from; i <= last; i += 1) {
+    for (let j = 0; j < needle.length; j += 1) {
+      if (haystack[i + j] !== needle[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+function concatBytes(a, b) {
+  if (a.length === 0) return b;
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
+  return out;
+}
+
+// One frame off the front of the buffer, or null when more bytes are needed.
+// Each part carries a Content-Length, so this takes an exact number of bytes
+// rather than scanning for the next boundary: a JPEG can contain any byte
+// sequence, including one that looks like the boundary.
+function takeFrame(buffer, marker) {
+  const start = bytesIndexOf(buffer, marker, 0);
+  if (start < 0) return null;
+  const headEnd = bytesIndexOf(buffer, CRLF2, start + marker.length);
+  if (headEnd < 0) return null;
+
+  const head = new TextDecoder("latin1")
+    .decode(buffer.subarray(start + marker.length, headEnd));
+  const declared = /content-length:\s*(\d+)/i.exec(head);
+  if (!declared) throw new Error("frame with no length");
+
+  const from = headEnd + CRLF2.length;
+  const to = from + Number(declared[1]);
+  if (buffer.length < to) return null;
+  return { frame: buffer.slice(from, to), rest: buffer.subarray(to) };
+}
+
+function showFrame(bytes) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" }));
+  const previous = el.cameraImg.src;
+  el.cameraImg.src = url;
+  // Released as soon as the next frame is assigned: the old one is already
+  // decoded and on screen, and keeping them would leak a URL per frame.
+  if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
+
+  if (cameraFailures || el.cameraFrame.hidden) {
+    cameraFailures = 0;
+    el.cameraFrame.hidden = false;
+    el.cameraNote.textContent = "";
+  }
+}
+
+async function readCamera(signal, onFrame) {
+  const res = await fetch("/api/camera.mjpg", { signal, cache: "no-store" });
+  if (res.status === 503) throw new Error("busy");
+  if (!res.ok) throw new Error(`feed returned ${res.status}`);
+
+  const boundary = /boundary=([^;]+)/i.exec(res.headers.get("Content-Type") || "");
+  if (!boundary) throw new Error("feed sent no boundary");
+  const marker = new TextEncoder().encode(`--${boundary[1].trim()}`);
+
+  const reader = res.body.getReader();
+  let buffer = new Uint8Array(0);
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      // A finished body is a dead feed, not a finished download: this response
+      // is meant to outlive everything else on the page.
+      if (done) throw new Error("feed ended");
+      buffer = concatBytes(buffer, value);
+
+      for (let taken = takeFrame(buffer, marker); taken;
+           taken = takeFrame(buffer, marker)) {
+        buffer = taken.rest;
+        onFrame(taken.frame);
+      }
+      if (buffer.length > CAMERA_MAX_BUFFER) throw new Error("feed lost sync");
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+}
 
 function attachCamera() {
   clearTimeout(cameraRetry);
   cameraRetry = null;
-  el.cameraImg.src = "/api/camera.mjpg?t=" + Date.now();
-  cameraAttached = true;
+  if (cameraAbort) return;                       // already connected
+
+  const controller = new AbortController();
+  cameraAbort = controller;
+
+  let watchdog = setTimeout(() => controller.abort(), CAMERA_TIMEOUT);
+  const onFrame = (frame) => {
+    clearTimeout(watchdog);
+    watchdog = setTimeout(() => controller.abort(), CAMERA_TIMEOUT);
+    showFrame(frame);
+  };
+
+  readCamera(controller.signal, onFrame)
+    .catch((err) => {
+      // A deliberate detach clears cameraAbort before aborting, so this tells
+      // "we hung up" apart from "it died on us".
+      if (cameraAbort !== controller) return;
+      cameraAbort = null;
+      cameraFailed(err);
+    })
+    .finally(() => clearTimeout(watchdog));
+}
+
+function cameraFailed(err) {
+  el.cameraFrame.hidden = true;
+  el.cameraNote.textContent =
+    String(err && err.message) === "busy"
+      ? "Too many people are watching right now."
+      : cameraFailures
+      ? "Still can't reach the camera."
+      : "The camera is unreachable right now.";
+
+  // Back off rather than hammering a camera that is already not answering.
+  cameraFailures += 1;
+  const delay = Math.min(30000, 2000 * 2 ** (cameraFailures - 1));
+  cameraRetry = setTimeout(() => {
+    cameraRetry = null;
+    if (!el.camera.hidden) attachCamera();
+  }, delay);
 }
 
 function detachCamera() {
   clearTimeout(cameraRetry);
   cameraRetry = null;
-  // Dropping src closes the connection. Without this the server keeps
-  // streaming to an element nobody is looking at, and counts a viewer that has
-  // already left against the cap.
+  const controller = cameraAbort;
+  cameraAbort = null;
+  // Hanging up closes the connection. Without it the server keeps streaming to
+  // a page nobody is looking at, and counts a viewer who has already left
+  // against the cap.
+  if (controller) controller.abort();
+  if (el.cameraImg.src.startsWith("blob:")) URL.revokeObjectURL(el.cameraImg.src);
   el.cameraImg.removeAttribute("src");
-  cameraAttached = false;
   // Reset, so reappearing later does not start with a stale complaint.
   cameraFailures = 0;
   el.cameraFrame.hidden = false;
@@ -235,31 +383,17 @@ function updateCamera(state) {
   if (!live) { detachCamera(); return; }
   // A pending retry owns reattachment. Without this check the status poll
   // would jump the queue every 60s and the backoff would never be honoured.
-  if (!cameraAttached && cameraRetry === null) attachCamera();
+  if (!cameraAbort && cameraRetry === null) attachCamera();
 }
 
-// A picture that is working needs no caption saying so. The note is only for
-// when there is nothing to look at.
-el.cameraImg.addEventListener("load", () => {
+// Waking a laptop or returning to a backgrounded tab is exactly the case that
+// used to need a reload: the connection died while nobody was looking. Don't
+// make someone sit out a backoff that was counted while the tab was hidden.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (el.camera.hidden || cameraAbort) return;
   cameraFailures = 0;
-  el.cameraFrame.hidden = false;
-  el.cameraNote.textContent = "";
-});
-
-el.cameraImg.addEventListener("error", () => {
-  cameraAttached = false;
-  el.cameraFrame.hidden = true;
-  el.cameraNote.textContent = cameraFailures
-    ? "Still can't reach the camera."
-    : "The camera is unreachable right now.";
-
-  // Back off rather than hammering a camera that is already not answering.
-  cameraFailures += 1;
-  const delay = Math.min(30000, 2000 * 2 ** (cameraFailures - 1));
-  cameraRetry = setTimeout(() => {
-    cameraRetry = null;
-    if (!el.camera.hidden) attachCamera();
-  }, delay);
+  attachCamera();
 });
 
 /* -- status -------------------------------------------------------------- */

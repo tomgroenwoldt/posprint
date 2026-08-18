@@ -725,3 +725,29 @@ def test_every_script_and_stylesheet_carries_a_build_stamp(client):
         assert "/static/" in html
         for ref in re.findall(r'/static/[^"\']+', html):
             assert "?v=" in ref, f"{ref} on {path} is not stamped"
+
+
+def test_the_camera_feed_is_read_rather_than_pointed_at():
+    """An <img> cannot report that a stream has stopped.
+
+    Measured in Chrome: when a multipart response ends - cleanly, by reset, or
+    by going silent - the element fires no event at all, keeps complete ===
+    true, and goes on showing its last frame. So the error handler meant to
+    reconnect could only fire before the first frame arrived, and any failure
+    after that froze the picture until someone reloaded the page. Reading the
+    body instead is what makes the end of a stream observable.
+
+    Structural, like the .trim() check above: there is no JS test runner, and
+    nothing on the server can see this go wrong.
+    """
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[1]
+          / "posprintweb" / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert 'fetch("/api/camera.mjpg"' in js
+    # The old shape, and the one to keep out: handing the URL to the element.
+    assert ".src = \"/api/camera.mjpg" not in js
+    # The two ways a dead feed shows itself, both of which must stay handled.
+    assert "CAMERA_TIMEOUT" in js
+    assert "feed ended" in js

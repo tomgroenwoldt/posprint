@@ -332,6 +332,39 @@ Two things keep the cost bounded:
   camera and your uplink the same as one. What scales per viewer is bytes
   leaving the VPS, which is what `CAMERA_MAX_VIEWERS` caps.
 
+### Why the page reads the stream instead of using `<img src>`
+
+An `<img>` pointed at a multipart stream cannot report that the stream stopped.
+Measured in Chrome, against a feed ended three ways — closed cleanly, reset
+mid-frame, and simply going silent — the element fires **no event at all** in
+every case. No `error`, no `abort`, no `stalled`. It keeps `complete === true`,
+keeps its `naturalWidth`, and goes on showing the last frame it received.
+
+So the reconnect logic could only ever fire *before* the first frame arrived.
+Once there was a picture on screen, any later failure froze it and nothing
+noticed — which is why the camera used to need a page refresh.
+
+The page now reads the body itself and paints each frame, which turns all three
+failures into one observable event: the body ending, or no frame within
+`CAMERA_TIMEOUT`. Either one reconnects with backoff. Returning to the tab also
+reconnects immediately rather than serving out a backoff counted while nobody
+was looking — waking a laptop is the case that used to need the refresh.
+
+The server's side of this is unchanged and already correct: `stream()` ends the
+response when the producer stalls, with the comment *"let the client retry"*.
+The client simply had no way to know.
+
+### Trying it without a camera
+
+```bash
+python web/scripts/dev.py --fake --camera --camera-drop=8
+```
+
+`--camera` serves a synthetic feed with a moving block, so a frozen picture is
+obvious at a glance. `--camera-drop=8` ends every stream after 8 seconds, the
+way a real one ends when its producer stalls. Before the fix the picture froze
+at the first drop and stayed frozen; now it comes back after a short backoff.
+
 That cap matters more than it looks. At 640×360, 15fps and `-q:v 6` a viewer is
 roughly 3 Mbit/s, and a domestic upload link runs out long before a Hetzner
 CAX11 does. Six viewers is about 18 Mbit/s leaving the flat. Lower
