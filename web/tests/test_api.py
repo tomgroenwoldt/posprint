@@ -295,6 +295,16 @@ def test_the_pages_are_served(client):
         assert r.headers["cache-control"] == "no-store"
 
 
+def test_every_page_links_to_the_source(client):
+    """It is a public service running in someone's flat; the code should be
+    one click away from all of it, not just the front page."""
+    for path in ("/", "/gallery", "/admin"):
+        body = client.get(path).text
+        assert "github.com/tomgroenwoldt/posprint" in body, path
+        # Opening a new tab without this hands the target a window handle.
+        assert 'rel="noopener noreferrer"' in body, path
+
+
 def test_the_admin_shell_contains_no_data_and_no_key(client):
     """It is served unauthenticated, so it had better be inert."""
     body = client.get("/admin").text

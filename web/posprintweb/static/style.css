@@ -69,7 +69,7 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
 
 /* -- nav ---------------------------------------------------------------- */
 
-.nav { display: flex; gap: .4rem; margin: 0 0 1.2rem; }
+.nav { display: flex; align-items: center; gap: .4rem; margin: 0 0 1.2rem; }
 .nav__link {
   font-size: .85rem; padding: .3rem .7rem; border-radius: 999px;
   text-decoration: none; color: var(--muted);
@@ -78,6 +78,19 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
 .nav__link:hover { color: var(--ink); }
 .nav__link--current {
   color: var(--paper); background: var(--ink); border-color: var(--ink);
+}
+
+/* margin-left:auto is what puts this at the far right: it takes up the slack
+   in the flex row, so the section links stay left however many there are. */
+.nav__link--source {
+  margin-left: auto; display: inline-flex; align-items: center; gap: .35rem;
+  border-color: transparent;
+}
+.nav__link--source svg { display: block; }
+/* The label is the first thing worth losing on a narrow screen - the mark on
+   its own is unambiguous, and the link keeps its accessible title either way. */
+@media (max-width: 30rem) {
+  .nav__link--source span { display: none; }
 }
 
 /* -- gallery ------------------------------------------------------------ */
