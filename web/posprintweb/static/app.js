@@ -93,12 +93,20 @@ function brailleArt(text) {
 
 const toPaper = (text) => Receipt.toPaper(text, charset);
 
+// Mirrors filters.clean() on the server: trailing spaces go, blank lines
+// top and bottom go, indentation stays.
+//
+// Used by BOTH the preview and the send. It lived only in the preview while
+// the send still called .trim(), so a drawing looked right on screen and
+// arrived with its first line shoved left - the exact bug the preview exists
+// to catch, hiding in the gap between the two copies.
+function asTyped(text) {
+  return text.replace(/[ \t]+$/gm, "").replace(/^\n+|\n+$/g, "");
+}
+
 function renderPreview() {
   const cols = limits.columns;
-  // Mirrors filters.clean(): trailing spaces go, blank lines top and bottom go,
-  // indentation stays. A .trim() here would re-introduce the exact bug this
-  // preview exists to catch.
-  const typed = el.message.value.replace(/[ \t]+$/gm, "").replace(/^\n+|\n+$/g, "");
+  const typed = asTyped(el.message.value);
   const from = el.name.value.trim();
 
   // Preview what the printer will produce, not what the browser can display.
@@ -377,8 +385,8 @@ el.form.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   clearError();
 
-  const message = el.message.value.trim();
-  if (!message) { showError("Nothing to print."); return; }
+  const message = asTyped(el.message.value);
+  if (!message.trim()) { showError("Nothing to print."); return; }
 
   el.submit.disabled = true;
   el.submit.textContent = "Printing…";

@@ -295,6 +295,29 @@ def test_the_pages_are_served(client):
         assert r.headers["cache-control"] == "no-store"
 
 
+def test_the_page_normalises_the_message_in_exactly_one_place():
+    """Indentation is content, and the send must not reach for .trim() again.
+
+    The server has preserved leading spaces since the clean() fix, and the
+    preview since the same commit - but the submit handler kept its own
+    .trim(), so a drawing looked right on screen and arrived with its first
+    line shoved left. Two copies of one rule is what allowed that gap.
+
+    Checked from Python because there is no JS test runner, and this class of
+    bug is invisible from the server: the request that arrives is well-formed,
+    just missing a space nobody can see.
+    """
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[1]
+          / "posprintweb" / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "el.message.value.trim()" not in js, "the send is trimming again"
+    # Once in the preview, once in the send - the same function, so they
+    # cannot drift apart.
+    assert js.count("asTyped(el.message.value)") == 2
+
+
 def test_every_page_links_to_the_source(client):
     """It is a public service running in someone's flat; the code should be
     one click away from all of it, not just the front page."""
