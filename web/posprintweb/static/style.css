@@ -95,13 +95,33 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
 
 /* -- gallery ------------------------------------------------------------ */
 
-.gallery { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; }
+/* Wide enough for two slips of roll side by side and no wider; the prose on
+   the other pages stays at a readable measure. */
+.page--wall main { max-width: 56rem; }
+
+/* min-width: 0 here and on the item below: a grid or flex child will not go
+   under its min-content width unless told to, and a slip's min-content is the
+   whole 48 columns. Without it a narrow phone scrolls the page sideways
+   instead of scrolling the receipt inside its own box. */
+.gallery {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem;
+  min-width: 0;
+}
 /* Entries reuse .paper from the print preview, so an approved message looks
-   the way it looked before it was sent. The item itself is only a wrapper. */
-.gallery__item { list-style: none; }
-.gallery__paper {
-  font-family: var(--mono); font-size: .8rem; line-height: 1.35;
-  margin: 0; white-space: pre; overflow-x: auto;
+   the way it looked before it was sent. The item is only a wrapper, but a grid
+   one: as a plain block the slip's margin would collapse into the caption's,
+   and collapsing takes the larger of the two rather than the sum - which left
+   the meta line 2px from the teeth however much margin the paper asked for. */
+.gallery__item {
+  list-style: none; max-width: 100%; min-width: 0;
+  display: grid; justify-items: start;
+}
+
+/* The public gallery stands receipts side by side. Each is only as wide as the
+   roll, so one per row left most of the page empty. Review stays one per row:
+   a decision is worth the whole width, and the buttons sit under each slip. */
+.gallery--wall {
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.8rem;
 }
 
 /* -- tabs --------------------------------------------------------------- */
@@ -197,18 +217,32 @@ button:disabled { background: var(--muted); cursor: not-allowed; opacity: .7; }
 
 /* -- receipt preview ---------------------------------------------------- */
 
+/* Grid for the same reason as .gallery__item: the heading above must clear the
+   serrations, not the paper edge they hang off. */
+.preview { display: grid; justify-items: start; }
+
+/* A slip of till roll. The roll is a fixed number of characters wide and
+   nothing on it can be wider, so the paper is sized by its contents and not by
+   the column it sits in - stretched to the full width it read as a half-empty
+   box rather than as a receipt. max-width keeps it scrollable on a phone. */
 .paper {
   position: relative;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  /* The serrations hang 8px outside the box. Reserving that as margin means
+     everything around a slip keeps its distance from the teeth rather than
+     from the edge they hang off, and no neighbour has to know about them. */
+  margin: 8px 0;
   background: var(--paper);
-  border: 1px solid var(--line);
-  border-bottom: 0;
-  border-radius: .3rem .3rem 0 0;
-  padding: 1.2rem 1rem 1.6rem;
-  box-shadow: 0 1px 3px rgb(0 0 0 / .08);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  padding: 1.1rem 1rem;
+  box-shadow: 0 1px 2px rgb(0 0 0 / .07), 0 10px 22px -12px rgb(0 0 0 / .35);
 }
 
-/* The scroll container is the <pre>, not .paper: .paper__tear sits below the
-   bottom edge, so scrolling here would produce a permanent scrollbar. */
+/* The scroll container is the <pre>, not .paper: the serrations sit outside
+   its box, so scrolling there would clip them and show a permanent bar. */
 .paper pre {
   margin: 0;
   font: 12.5px/1.45 var(--mono);
@@ -226,10 +260,25 @@ button:disabled { background: var(--muted); cursor: not-allowed; opacity: .7; }
   font-weight: 700;
 }
 
-/* Torn edge along the bottom, the way the cutter leaves it. */
-.paper__tear {
-  position: absolute; left: 0; right: 0; bottom: -8px; height: 9px;
+/* Serrated at both ends, the way the cutter leaves a slip: this is a piece cut
+   out of a roll, not a sheet of paper, so neither end is straight. Drawn as
+   pseudo-elements so every page gets them from the class alone. */
+.paper::before,
+.paper::after {
+  content: "";
+  position: absolute; left: -1px; right: -1px; height: 9px;
   background: var(--paper);
+}
+.paper::before {
+  top: -8px;
+  border-top: 1px solid var(--line);
+  -webkit-mask-image: repeating-linear-gradient(
+    45deg, transparent 0 6px, #000 6px 12px);
+  mask-image: repeating-linear-gradient(
+    45deg, transparent 0 6px, #000 6px 12px);
+}
+.paper::after {
+  bottom: -8px;
   border-bottom: 1px solid var(--line);
   -webkit-mask-image: repeating-linear-gradient(
     -45deg, #000 0 6px, transparent 6px 12px);

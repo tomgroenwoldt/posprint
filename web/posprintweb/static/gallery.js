@@ -23,7 +23,6 @@ function entryNode(entry) {
   const paper = document.createElement("div");
   paper.className = "paper";
   const pre = document.createElement("pre");
-  pre.className = "gallery__paper";
   pre.innerHTML = Receipt.render({
     message: entry.message,
     name: entry.name,
@@ -31,11 +30,7 @@ function entryNode(entry) {
     cols: columns,
     charset,
   });
-  const tear = document.createElement("div");
-  tear.className = "paper__tear";
-  tear.setAttribute("aria-hidden", "true");
-
-  paper.append(pre, tear);
+  paper.append(pre);
   li.append(paper);
   return li;
 }
