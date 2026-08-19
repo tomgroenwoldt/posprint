@@ -25,3 +25,8 @@ class PrintMessage(BaseModel):
     # live in Config and are enforced in filters.py.
     message: str = Field(..., max_length=5000)
     name: str = Field("", max_length=200)
+    # Proof of work. Optional on the model so a request without one reaches the
+    # route and is refused there with something a page can act on, rather than
+    # becoming a 422 about a missing field.
+    challenge: str = Field("", max_length=200)
+    counter: int = Field(0, ge=0)

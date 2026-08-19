@@ -329,6 +329,68 @@ punishment rather than a queue. Both now report the truth.
 Blocked attempts never reach the insert, so hammering does not push the window
 out: a flood cannot extend its own block.
 
+### Proof of work
+
+`GLOBAL_BURST` bounds the paper. It does not stop a flood *occupying* those
+slots while a person waits, and nothing keyed on the sender can, because the
+sender is renting their identity.
+
+So every print must arrive with a solved puzzle. The server names a challenge;
+the page searches for a counter whose SHA-256 starts with `POW_BITS` zero bits;
+the server checks it in one hash and spends it. Finding an answer costs a few
+hundred thousand hashes. Checking one costs a single hash. That asymmetry is
+the entire idea.
+
+**A button or a checkbox would not have helped.** The flood never loaded the
+page — it posted straight to `/api/print`, where there is nothing to click.
+This is verifiable in one line:
+
+```bash
+curl -X POST https://print.example.com/api/print   -H 'Content-Type: application/json' -d '{"message":"hello"}'
+```
+
+Before, that printed a receipt. Now it is a `428`. The "I'm not a robot" click
+in a commercial captcha is a wrapper around the same server-side token check;
+the click itself is not what protects anything, which is why headless browsers
+performing it is an industry rather than a surprise.
+
+Challenges are signed with an HMAC, so nothing is stored to know we issued one,
+and **spent exactly once** — a replayable answer is a one-off cost rather than
+a per-print one. The admin key skips the check, which is also the answer to
+being locked out of your own printer during a flood.
+
+**What this does and does not buy.** It ends casual scripting completely: a
+`curl` loop now has to implement a SHA-256 search. It does not stop someone
+determined, because browsers are roughly fifty times slower at hashing than
+native code, so any difficulty tolerable in a page is milliseconds in C. The
+security is in *requiring proof at all*, not in the number of bits — which is
+why `POW_BITS` should be chosen for the slowest phone you care about rather
+than pushed as high as it will go.
+
+Measured at 18 bits, with the search started on the first keystroke so it
+overlaps with typing:
+
+| Device | Median | 95th percentile |
+| --- | --- | --- |
+| Desktop (~870k hashes/s) | 0.2s | 0.9s |
+| Mid-range phone | 0.5s | 2s |
+| Old phone | 1.2s | 5s |
+
+In practice the answer is ready before the button is pressed: typing mweol took
+1.8s, and the print went out 152ms after the click. If it is not ready the
+button counts hashes rather than freezing.
+
+The solver is plain integer arithmetic — `Uint32Array`, `Math.clz32`,
+`MessageChannel`. **No `crypto.subtle`**, which is asynchronous (a promise per
+hash turns a quarter-million hashes into minutes) and needs a secure context;
+no WebAssembly; no worker. It runs anywhere with ES2015, which is a wider net
+than the Web Crypto API casts.
+
+The JavaScript SHA-256 is checked against the browser's own `crypto.subtle`
+over 300+ random inputs and every block-boundary length, plus the published
+`abc` vector. Python pins the recipe in `test_challenge.py`: if the two ever
+disagree, no browser can print at all.
+
 The repeat check counts shadowed prints too — otherwise a caught message could
 be resent indefinitely, one address at a time. It does *not* count failed
 prints, since those produced no paper.
@@ -506,6 +568,9 @@ All settings are environment variables, read once at startup from
 | `POSPRINTWEB_GLOBAL_HOURLY` | `30` | Hourly cap across everyone. `0` disables |
 | `POSPRINTWEB_GLOBAL_BURST` | `8` | Per-minute cap across everyone — the one that stops a proxy-pool flood. `0` disables |
 | `POSPRINTWEB_GLOBAL_BURST_SECONDS` | `60` | The burst window |
+| `POSPRINTWEB_POW_BITS` | `18` | Proof-of-work difficulty in leading zero bits. Each bit doubles the sender's cost. `0` disables |
+| `POSPRINTWEB_POW_TTL_SECONDS` | `300` | How long a challenge stays solvable |
+| `POSPRINTWEB_POW_SECRET` | *(random)* | HMAC key for challenges. Set it to survive restarts or run more than one worker |
 | `POSPRINTWEB_TRUST_PROXY` | `false` | Trust the forwarding header for the client address. Read "Exposing it" first |
 | `POSPRINTWEB_CLIENT_IP_HEADER` | `x-forwarded-for` | The one header trusted when the above is on. `cf-connecting-ip` behind Cloudflare |
 | `POSPRINTWEB_ADMIN_KEYS` | *(empty)* | Comma-separated. Bypass all limits, unlock `/admin/log` |

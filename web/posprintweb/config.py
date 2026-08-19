@@ -186,6 +186,17 @@ class Config:
     global_burst: int = 8
     global_burst_seconds: int = 60
 
+    # Proof of work: a cost per print, paid in CPU, that nothing rentable
+    # substitutes for. The flood that prompted the burst cap never loaded the
+    # page at all - it posted straight to /api/print, which is why a button or
+    # a checkbox would have changed nothing.
+    #
+    # Difficulty is in leading zero bits, so each bit doubles the work. 18 is
+    # about 260k hashes: under a second in a browser, once per print, against a
+    # 60s cooldown nobody notices. 0 disables the check entirely.
+    pow_bits: int = 18
+    pow_ttl_seconds: int = 300
+
     # The forwarding header is attacker-controlled unless something trusted
     # overwrites it. Only turn this on when a reverse proxy or tunnel is
     # actually in front, otherwise every rate limit becomes bypassable with one
@@ -277,6 +288,8 @@ class Config:
             shadow_delay_ms=_env_int("POSPRINTWEB_SHADOW_DELAY_MS", 900),
             repeat_hours=_env_int("POSPRINTWEB_REPEAT_HOURS", 24),
             global_hourly=_env_int("POSPRINTWEB_GLOBAL_HOURLY", 30),
+            pow_bits=_env_int("POSPRINTWEB_POW_BITS", 18),
+            pow_ttl_seconds=_env_int("POSPRINTWEB_POW_TTL_SECONDS", 300),
             global_burst=_env_int("POSPRINTWEB_GLOBAL_BURST", 8),
             global_burst_seconds=_env_int(
                 "POSPRINTWEB_GLOBAL_BURST_SECONDS", 60),

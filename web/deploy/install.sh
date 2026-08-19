@@ -142,6 +142,17 @@ POSPRINTWEB_GLOBAL_HOURLY=30
 POSPRINTWEB_GLOBAL_BURST=8
 POSPRINTWEB_GLOBAL_BURST_SECONDS=60
 
+# Proof of work: every print must arrive with a solved puzzle, which is the one
+# cost a rented address cannot pay. The flood that made this necessary posted
+# straight to /api/print, so a button or a checkbox would have changed nothing.
+# Difficulty is leading zero bits, so each bit doubles the sender's work. 18 is
+# about a fifth of a second on a desktop and a second on an old phone, and the
+# page solves it while the message is being typed. Lower it if visitors on slow
+# phones complain; raising it costs them far more than it costs an attacker,
+# who is not running JavaScript. 0 disables the check.
+POSPRINTWEB_POW_BITS=18
+POSPRINTWEB_POW_TTL_SECONDS=300
+
 # --- live camera (optional) ------------------------------------------------
 # RTSP URL of a camera pointed at the printer. Empty disables the feed.
 # Tapo: enable Advanced Settings -> Camera Account in the app first, then

@@ -29,6 +29,9 @@ os.environ.update(
     POSPRINTWEB_REPEAT_HOURS="0",
     POSPRINTWEB_GLOBAL_HOURLY="0",
     POSPRINTWEB_GLOBAL_BURST="0",
+    # Off here so every other test is not a proof-of-work benchmark. The check
+    # itself is covered in test_challenge.py and switched on deliberately below.
+    POSPRINTWEB_POW_BITS="0",
 )
 
 from posprintweb import app as appmod  # noqa: E402
@@ -781,3 +784,67 @@ def test_the_burst_cap_holds_across_addresses(monkeypatch):
         blocked = send(client, message="one more", ip="203.0.113.7")
         assert blocked.status_code == 429
         assert 0 < int(blocked.headers["Retry-After"]) <= 60
+
+
+def _solve(challenge, bits):
+    from posprintweb.challenge import solved
+    counter = 0
+    while not solved(challenge, counter, bits):
+        counter += 1
+    return counter
+
+
+def test_printing_needs_proof_of_work(monkeypatch):
+    """The flood posted straight here, with no page and so no button to click.
+    What it cannot skip is arriving with the work already done."""
+    from dataclasses import replace
+
+    from posprintweb.challenge import Challenges
+
+    monkeypatch.setattr(appmod, "cfg", replace(appmod.cfg, pow_bits=8))
+    monkeypatch.setattr(appmod, "challenges", Challenges(bits=8, ttl=300.0))
+    monkeypatch.setattr(appmod, "store", Store(":memory:", appmod.TZ))
+
+    with TestClient(appmod.app) as client:
+        # What curl does: no proof at all.
+        bare = client.post("/api/print", json={"message": "no work done"})
+        assert bare.status_code == 428
+
+        # What the page does.
+        issued = client.get("/api/challenge").json()
+        assert issued["bits"] == 8
+        counter = _solve(issued["challenge"], issued["bits"])
+        ok = client.post("/api/print", json={
+            "message": "work done", "challenge": issued["challenge"],
+            "counter": counter,
+        })
+        assert ok.status_code == 200
+
+        # And that proof is spent - replaying it is worth nothing.
+        again = client.post("/api/print", json={
+            "message": "replayed", "challenge": issued["challenge"],
+            "counter": counter,
+        })
+        assert again.status_code == 428
+
+
+def test_the_admin_key_skips_the_proof(monkeypatch):
+    """So a flood cannot lock you out of your own printer."""
+    from dataclasses import replace
+
+    from posprintweb.challenge import Challenges
+
+    monkeypatch.setattr(appmod, "cfg", replace(appmod.cfg, pow_bits=8))
+    monkeypatch.setattr(appmod, "challenges", Challenges(bits=8, ttl=300.0))
+    monkeypatch.setattr(appmod, "store", Store(":memory:", appmod.TZ))
+
+    with TestClient(appmod.app) as client:
+        r = client.post("/api/print", json={"message": "mine"},
+                        headers={"X-Admin-Key": "admin-secret"})
+    assert r.status_code == 200
+
+
+def test_zero_bits_disables_the_check(monkeypatch):
+    monkeypatch.setattr(appmod, "store", Store(":memory:", appmod.TZ))
+    with TestClient(appmod.app) as client:      # harness runs with pow_bits=0
+        assert client.post("/api/print", json={"message": "no proof"}).status_code == 200

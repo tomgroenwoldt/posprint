@@ -44,6 +44,7 @@ from .filters import (
     clean,
     printable_charset,
 )
+from .challenge import BadChallenge, Challenges
 from .models import GalleryDecision, PrintMessage
 from .store import QuotaExceeded, Store
 from .upstream import Upstream, UpstreamError
@@ -72,6 +73,8 @@ TZ = _tz()
 CHARSET = printable_charset(cfg.codepage)
 store = Store(cfg.db_path, TZ) if TZ else Store(cfg.db_path, datetime.now().astimezone().tzinfo)
 upstream = Upstream(cfg.upstream_url, cfg.upstream_key, cfg.upstream_timeout)
+challenges = Challenges(bits=cfg.pow_bits, ttl=cfg.pow_ttl_seconds)
+
 camera = Camera(
     cfg.camera_url,
     fps=cfg.camera_fps,
@@ -257,11 +260,42 @@ async def status(request: Request) -> dict:
     }
 
 
+@app.get("/api/challenge", include_in_schema=False)
+async def api_challenge() -> dict:
+    """A puzzle to solve before printing.
+
+    Cheap to issue and cheap to check; the expense is entirely in the search,
+    which is the sender's to pay. Not cached, obviously - a reused challenge is
+    a one-off cost rather than a per-print one.
+    """
+    return challenges.issue()
+
+
 @app.post("/api/print", summary="Print one message")
 async def print_message(
     req: PrintMessage, request: Request, x_admin_key: str | None = Header(None)
 ) -> JSONResponse:
     admin = is_admin(x_admin_key)
+
+    # The outer gate, checked before the quotas so that every attempt costs the
+    # sender CPU - including the ones a quota would have refused anyway. An
+    # attacker who can probe for free can find the edge of every other limit
+    # for nothing.
+    #
+    # The admin key skips it, which is also the answer to being locked out of
+    # your own printer during a flood.
+    if cfg.pow_bits > 0 and not admin:
+        try:
+            challenges.redeem(req.challenge, req.counter)
+        except BadChallenge as exc:
+            log.info("proof of work refused (%s) from %s", exc, client_ip(request))
+            # 428: the request is fine, it is missing a precondition. The page
+            # fetches a fresh challenge and solves it again; nothing about
+            # which part failed is worth telling a sender who is guessing.
+            raise HTTPException(
+                status_code=428,
+                detail="This page needs refreshing before it can print.",
+            ) from None
 
     if killed() and not admin:
         raise HTTPException(

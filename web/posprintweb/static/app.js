@@ -513,6 +513,50 @@ async function refreshStatus() {
   }
 }
 
+/* -- proof of work ------------------------------------------------------- */
+
+// Every print has to arrive with a solved challenge. The search takes a
+// fraction of a second, and it is started as soon as there is any sign someone
+// is composing a message - so by the time the button is pressed the answer is
+// almost always already sitting here and the print goes out immediately.
+//
+// This is the check a checkbox could never be. The flood that made it
+// necessary never loaded this page: it posted straight to /api/print, where no
+// amount of clicking happens. What a sender cannot skip is arriving with proof
+// that the work was done.
+
+let solvedProof = null;         // an answer waiting to be spent
+let solveInFlight = null;       // a search already running, if any
+
+async function freshProof(onProgress) {
+  const r = await fetch("/api/challenge", { cache: "no-store" });
+  if (!r.ok) throw new Error(`challenge ${r.status}`);
+  const { challenge, bits } = await r.json();
+  if (!bits) return { challenge: "", counter: 0 };   // switched off server-side
+  const { counter } = await Pow.solve(challenge, bits, onProgress);
+  return { challenge, counter };
+}
+
+// Start early and quietly. A failure here is not worth showing: the submit
+// path solves one itself if this has not produced anything.
+function warmProof() {
+  if (solvedProof || solveInFlight) return;
+  solveInFlight = freshProof()
+    .then((proof) => { solvedProof = proof; })
+    .catch(() => {})
+    .finally(() => { solveInFlight = null; });
+}
+
+async function takeProof(onProgress) {
+  if (!solvedProof && solveInFlight) await solveInFlight;
+  if (solvedProof) {
+    const proof = solvedProof;
+    solvedProof = null;         // single use, on this side as well as the server's
+    return proof;
+  }
+  return freshProof(onProgress);
+}
+
 /* -- submit -------------------------------------------------------------- */
 
 el.form.addEventListener("submit", async (ev) => {
@@ -525,12 +569,33 @@ el.form.addEventListener("submit", async (ev) => {
   el.submit.disabled = true;
   el.submit.textContent = "Printing…";
 
+  const showSearch = (tried) => {
+    el.submit.textContent = `Checking… ${Math.round(tried / 1000)}k`;
+  };
+
+  const post = (proof) => fetch("/api/print", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      name: el.name.value.trim(),
+      challenge: proof.challenge,
+      counter: proof.counter,
+    }),
+  });
+
   try {
-    const r = await fetch("/api/print", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, name: el.name.value.trim() }),
-    });
+    let r = await post(await takeProof(showSearch));
+
+    // 428 means the proof was stale or already spent - a challenge lives for
+    // five minutes, and someone can easily spend longer writing. Solving a
+    // fresh one and sending again is better than making them press the button
+    // twice for a reason they cannot see.
+    if (r.status === 428) {
+      el.submit.textContent = "Printing…";
+      r = await post(await freshProof(showSearch));
+    }
+
     const body = await r.json().catch(() => ({}));
 
     if (r.ok) {
@@ -550,10 +615,16 @@ el.form.addEventListener("submit", async (ev) => {
     showError("Network error. Is the site still up?");
     el.submit.textContent = "Print it";
     syncSubmit();
+  } finally {
+    warmProof();               // ready for the next one
   }
 });
 
-el.message.addEventListener("input", () => { updateCount(); renderPreview(); });
+el.message.addEventListener("input", () => {
+  warmProof();
+  updateCount();
+  renderPreview();
+});
 el.name.addEventListener("input", renderPreview);
 
 refreshStatus();
