@@ -120,3 +120,54 @@ def test_status_reports_what_the_page_shows():
     assert status["refusals_in_window"] == 2
     assert status["threshold"] == 2
     assert 580 <= status["seconds_left"] <= 600
+
+
+# -- the volume trigger ---------------------------------------------------
+#
+# This exists because the repository is public. Refusals only appear when
+# someone overshoots a limit, so a reader who knows the thresholds can pace
+# exactly at the burst cap, never overshoot, and print all day without ever
+# tripping the refusal signal. Politeness should not be a bypass.
+
+
+def test_a_paced_sender_who_never_overshoots_is_still_caught():
+    """The bypass the published thresholds would otherwise hand over."""
+    s = Siege(threshold=5, window_seconds=300.0, volume=10,
+              volume_seconds=3600.0, hold_for_seconds=1800.0)
+
+    # Perfectly behaved: a print every 30 seconds, never a single refusal.
+    for i in range(9):
+        s.printed(now=1000.0 + i * 30)
+    assert s.active(now=1300.0) is False        # still plausibly a busy evening
+
+    s.printed(now=1000.0 + 9 * 30)
+    assert s.active(now=1300.0) is True         # sustained volume is not
+
+
+def test_volume_ages_out_of_its_window():
+    """A busy hour last night is not an attack now."""
+    s = Siege(threshold=5, volume=3, volume_seconds=3600.0,
+              hold_for_seconds=60.0)
+    s.printed(now=1000.0)
+    s.printed(now=2000.0)
+    s.printed(now=1000.0 + 3700)                # first has aged out
+    assert s.active(now=1000.0 + 3800) is False
+
+
+def test_zero_volume_disables_that_signal():
+    s = Siege(threshold=5, volume=0, volume_seconds=3600.0)
+    for i in range(500):
+        s.printed(now=1000.0 + i)
+    assert s.active(now=1500.0) is False
+
+
+def test_either_signal_alone_is_enough():
+    refusals = Siege(threshold=2, volume=0)
+    refusals.refused(now=1000.0)
+    refusals.refused(now=1001.0)
+    assert refusals.active(now=1002.0) is True
+
+    volume = Siege(threshold=0, volume=2, volume_seconds=3600.0)
+    volume.printed(now=1000.0)
+    volume.printed(now=1001.0)
+    assert volume.active(now=1002.0) is True

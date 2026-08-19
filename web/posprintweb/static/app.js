@@ -9,6 +9,8 @@ const el = {
   blurb: $("blurb"), quota: $("quota"), error: $("error"),
   counterLine: $("counter-line"),
   camera: $("camera"), cameraImg: $("camera-img"), cameraNote: $("camera-note"),
+  puzzle: $("puzzle"), puzzleImg: $("puzzle-img"), puzzleGrid: $("puzzle-grid"),
+  puzzleSkip: $("puzzle-skip"),
   cameraFrame: $("camera-frame"),
 };
 
@@ -403,11 +405,13 @@ function setStatus(cls, text) {
   el.status.textContent = text;
 }
 
-function showError(msg, ok = false) {
+// variant "info" is for neither-failure-nor-success: a queued message is not
+// an error, and colouring it like one reads as a rejection.
+function showError(msg, ok = false, variant = "") {
   el.error.hidden = false;
   el.error.textContent = msg;
   el.error.classList.toggle("error--ok", ok);
-  el.error.classList.remove("error--info");
+  el.error.classList.toggle("error--info", variant === "info");
   // Tagged so the live charset warning knows which messages are its own to
   // withdraw, and does not wipe a print result the visitor is still reading.
   delete el.error.dataset.reason;
@@ -557,6 +561,51 @@ async function takeProof(onProgress) {
   return freshProof(onProgress);
 }
 
+/* -- the puzzle ---------------------------------------------------------- */
+
+// Shown only when a message has been queued because the printer is under
+// attack. It is a fast lane, not a gate: ignoring it leaves the message in the
+// queue exactly as before, which is why a picture is an acceptable thing to
+// ask for. Nobody is locked out by failing to see it.
+//
+// The overlay is an even 3x2 grid rather than one hit box per drawn shape.
+// Each shape sits comfortably inside its third of the image, so a click
+// anywhere in the right region counts - which is kinder on a phone than
+// asking for precision.
+async function askPuzzle() {
+  let issued;
+  try {
+    const r = await fetch("/api/captcha", { cache: "no-store" });
+    if (!r.ok) return null;
+    issued = await r.json();
+  } catch {
+    return null;
+  }
+
+  el.puzzleImg.src = issued.image;
+  el.puzzleGrid.style.gridTemplateColumns = `repeat(${issued.columns}, 1fr)`;
+  el.puzzle.hidden = false;
+
+  return new Promise((resolve) => {
+    const done = (value) => {
+      el.puzzle.hidden = true;
+      el.puzzleGrid.replaceChildren();
+      resolve(value);
+    };
+
+    el.puzzleGrid.replaceChildren(...Array.from({ length: issued.tiles }, (_, i) => {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "puzzle__cell";
+      cell.setAttribute("aria-label", `Shape ${i + 1}`);
+      cell.addEventListener("click", () => done({ token: issued.token, answer: i }));
+      return cell;
+    }));
+
+    el.puzzleSkip.onclick = () => done(null);
+  });
+}
+
 /* -- submit -------------------------------------------------------------- */
 
 el.form.addEventListener("submit", async (ev) => {
@@ -573,7 +622,7 @@ el.form.addEventListener("submit", async (ev) => {
     el.submit.textContent = `Checking… ${Math.round(tried / 1000)}k`;
   };
 
-  const post = (proof) => fetch("/api/print", {
+  const post = (proof, puzzle) => fetch("/api/print", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -581,6 +630,10 @@ el.form.addEventListener("submit", async (ev) => {
       name: el.name.value.trim(),
       challenge: proof.challenge,
       counter: proof.counter,
+      // Only present after a queued message and a solved puzzle. The rest of
+      // the time the server never looks at these.
+      captcha_token: puzzle ? puzzle.token : "",
+      captcha_answer: puzzle ? puzzle.answer : -1,
     }),
   });
 
@@ -598,7 +651,35 @@ el.form.addEventListener("submit", async (ev) => {
 
     const body = await r.json().catch(() => ({}));
 
-    if (r.ok) {
+    // 202: the printer is under attack and the message is queued rather than
+    // printed. If a puzzle is on offer, solving it prints now instead.
+    if (r.status === 202) {
+      showError(body.detail, false, "info");
+      el.submit.textContent = "Print it";
+      syncSubmit();
+      if (body.captcha_offered) {
+        const puzzle = await askPuzzle();
+        if (puzzle) {
+          el.submit.disabled = true;
+          el.submit.textContent = "Printing…";
+          const second = await post(await takeProof(showSearch), puzzle);
+          const again = await second.json().catch(() => ({}));
+          if (second.ok) {
+            showError("Printed. It is sitting on my desk right now.", true);
+            el.message.value = "";
+            updateCount();
+            renderPreview();
+            startCooldown(again.next_allowed_in || limits.cooldown_seconds);
+          } else if (second.status === 202) {
+            showError("That was not it. Your message is still in the queue.");
+          } else {
+            showError(again.detail || `Something went wrong (${second.status}).`);
+          }
+          el.submit.textContent = "Print it";
+          syncSubmit();
+        }
+      }
+    } else if (r.ok) {
       showError("Printed. It is sitting on my desk right now.", true);
       el.message.value = "";
       updateCount();

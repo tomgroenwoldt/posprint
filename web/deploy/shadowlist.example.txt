@@ -4,51 +4,16 @@
 # sender's quota, written to the log, and never printed. Nobody is told. See
 # "The quiet filter" in web/README.md.
 #
-# Copy this somewhere real and point POSPRINTWEB_SHADOWLIST at it:
-#     cp shadowlist.example.txt /etc/posprintweb-shadowlist.txt
+# THIS FILE IS AN EXAMPLE AND THIS REPOSITORY IS PUBLIC. Do not point
+# POSPRINTWEB_SHADOWLIST at it. The whole premise of a shadow filter is that
+# the sender believes their message printed; a published list tells them
+# otherwise and doubles as a checklist of what to avoid. Keep the real one
+# outside the repository - /etc/posprintweb-shadowlist.txt, mode 0600 - and
+# leave this here only to show the format.
 #
-# One term per line. Matching is case-insensitive, ignores accents, and is done
-# on WORD BOUNDARIES - "ass" will not match "class" or "passport". Terms of
-# five characters or more are additionally matched with separators removed, so
-# f-u-c-k and f.u.c.k are caught too.
-#
-# A false positive here is invisible: the sender is told it printed and you get
-# a log line nobody reads. So prefer specific terms over broad ones, and check
-# the log occasionally to see what it has been catching.
+# One term per line, case-insensitive. Matched on letters and digits only, so
+# spacing, punctuation and accents between them do not help: "s h i p" matches
+# "ship". Blank lines and lines starting with # are ignored.
 
-# --- explicit sexual terms (the usual ASCII-art spam) ---------------------
-cock
-dick
-penis
-schwanz
-blowjob
-cumshot
-handjob
-anal
-titties
-boobs
-pussy
-vagina
-wichser
-fotze
-
-# --- general profanity ----------------------------------------------------
-fuck
-fucking
-motherfucker
-shit
-bullshit
-bitch
-bastard
-arschloch
-scheisse
-hurensohn
-missgeburt
-
-# --- slurs ----------------------------------------------------------------
-# Deliberately not enumerated here. Add the ones you actually see, in the
-# languages your visitors actually use - a generic list of every slur in
-# English is mostly dead weight and still misses whatever turns up. The log is
-# the source of truth for what to add:
-#
-#     curl -s -H "X-Admin-Key: $KEY" http://127.0.0.1:8000/admin/log | jq '.prints[].message'
+example-term-one
+example-term-two

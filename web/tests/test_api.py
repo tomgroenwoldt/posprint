@@ -1006,3 +1006,41 @@ def test_the_admin_still_prints_during_a_siege(monkeypatch):
         r = client.post("/api/print", json={"message": "mine"},
                         headers={"X-Admin-Key": "admin-secret"})
     assert r.status_code == 200
+
+
+def test_solving_the_puzzle_prints_instead_of_queueing(monkeypatch):
+    """The fast lane. A siege otherwise makes everyone wait for the owner."""
+    from posprintweb.captcha import _sign
+
+    _under_siege(monkeypatch, global_burst=0)
+    appmod.siege.refused()
+    appmod.siege.refused()
+
+    with TestClient(appmod.app) as client:
+        # Without a puzzle: queued, as before.
+        first = send(client, message="no puzzle", ip="10.4.0.1")
+        assert first.status_code == 202
+        assert first.json()["captcha_offered"] is True
+
+        issued = client.get("/api/captcha").json()
+        nonce, at, _seed, sig = issued["token"].split(".")
+        answer = next(a for a in range(issued["tiles"])
+                      if _sign(nonce, int(at), a) == sig)
+
+        solved = client.post("/api/print", json={
+            "message": "solved it", "captcha_token": issued["token"],
+            "captcha_answer": answer,
+        }, headers={"X-Forwarded-For": "10.4.0.2"})
+        assert solved.status_code == 200            # printed, not queued
+
+        # A wrong answer queues like anyone else - failing is not refusal, so
+        # nobody who cannot see the picture is locked out of the printer.
+        other = client.get("/api/captcha").json()
+        nonce, at, _seed, sig = other["token"].split(".")
+        right = next(a for a in range(other["tiles"])
+                     if _sign(nonce, int(at), a) == sig)
+        wrong = client.post("/api/print", json={
+            "message": "guessed wrong", "captcha_token": other["token"],
+            "captcha_answer": (right + 1) % other["tiles"],
+        }, headers={"X-Forwarded-For": "10.4.0.3"})
+        assert wrong.status_code == 202

@@ -218,6 +218,19 @@ class Config:
     # Held messages cost a database row, so a long siege has a ceiling. Past
     # it, new messages are refused outright rather than queued.
     hold_max_queue: int = 200
+    # The second trigger, and the one that exists because this repository is
+    # public. Refusals only happen when someone overshoots; a reader who knows
+    # the thresholds can pace exactly at the burst cap, never overshoot, and
+    # print all day without ever tripping it. Volume catches that. Nobody sends
+    # sixty messages an hour to a stranger's printer, however politely spaced.
+    hold_volume: int = 60
+    hold_volume_seconds: int = 3600
+
+    # The visual puzzle offered during a siege. Not a wall - no captcha is -
+    # but a fast lane: solve it and print now rather than waiting in the queue.
+    # Failing it is not refusal, only the ordinary wait, which is what keeps it
+    # from locking out anyone who cannot see the picture.
+    captcha_enabled: bool = True
 
     # The forwarding header is attacker-controlled unless something trusted
     # overwrites it. Only turn this on when a reverse proxy or tunnel is
@@ -310,6 +323,10 @@ class Config:
             shadow_delay_ms=_env_int("POSPRINTWEB_SHADOW_DELAY_MS", 900),
             repeat_hours=_env_int("POSPRINTWEB_REPEAT_HOURS", 24),
             global_hourly=_env_int("POSPRINTWEB_GLOBAL_HOURLY", 30),
+            captcha_enabled=_env_bool("POSPRINTWEB_CAPTCHA", True),
+            hold_volume=_env_int("POSPRINTWEB_HOLD_VOLUME", 60),
+            hold_volume_seconds=_env_int(
+                "POSPRINTWEB_HOLD_VOLUME_SECONDS", 3600),
             hold_threshold=_env_int("POSPRINTWEB_HOLD_THRESHOLD", 20),
             hold_window_seconds=_env_int("POSPRINTWEB_HOLD_WINDOW_SECONDS", 300),
             hold_for_seconds=_env_int("POSPRINTWEB_HOLD_FOR_SECONDS", 1800),

@@ -329,6 +329,45 @@ punishment rather than a queue. Both now report the truth.
 Blocked attempts never reach the insert, so hammering does not push the window
 out: a flood cannot extend its own block.
 
+### Running this where the attacker can read it
+
+This repository is public, and it is safe to assume whoever is abusing the
+printer pulls it and reads the diffs. That is fine for the mechanisms and fatal
+for the numbers, so the split matters:
+
+**Publication does not weaken.** Proof of work costs what it costs whether or
+not you know how it works. The rate limits are arithmetic. Siege mode holding
+prints for approval cannot be argued out of by understanding it. The HMAC
+constructions are secure with the algorithm known and the key secret, which is
+the ordinary arrangement.
+
+**Publication does weaken.** Anything whose value was that nobody had looked at
+it. Three specifics:
+
+- **The shadow list.** Its entire premise is that the sender believes their
+  message printed. `deploy/shadowlist.example.txt` is a format example with no
+  real terms in it — keep the real list outside the repository and point
+  `POSPRINTWEB_SHADOWLIST` there.
+- **The thresholds.** Refusals only happen when someone overshoots a limit, so
+  a reader who knows `HOLD_THRESHOLD` can pace exactly at the burst cap and
+  never trip it. `HOLD_VOLUME` closes that specific hole, but the general rule
+  stands: change the numbers in `/etc/posprintweb.env` so they are not the
+  published defaults.
+- **The captcha.** Its honest advantage was that no solver existed for it. With
+  `captcha.py` public, writing one is an afternoon rather than a research
+  project — the file says which four shapes, which six colours, and that
+  exactly one property differs.
+
+**Set these, so they are not per-process randoms and not the defaults:**
+
+```bash
+POSPRINTWEB_POW_SECRET=$(openssl rand -hex 32)
+POSPRINTWEB_CAPTCHA_SECRET=$(openssl rand -hex 32)
+```
+
+Neither is in the repository and neither should be. Nothing else here depends
+on secrecy to work.
+
 ### Siege mode
 
 Everything above is a **price**. The burst cap prices paper, proof of work

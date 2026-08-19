@@ -44,6 +44,7 @@ from .filters import (
     clean,
     printable_charset,
 )
+from .captcha import BadCaptcha, Captchas
 from .challenge import BadChallenge, Challenges
 from .siege import Siege
 from .models import GalleryDecision, HeldDecision, PrintMessage
@@ -75,10 +76,13 @@ CHARSET = printable_charset(cfg.codepage)
 store = Store(cfg.db_path, TZ) if TZ else Store(cfg.db_path, datetime.now().astimezone().tzinfo)
 upstream = Upstream(cfg.upstream_url, cfg.upstream_key, cfg.upstream_timeout)
 challenges = Challenges(bits=cfg.pow_bits, ttl=cfg.pow_ttl_seconds)
+captchas = Captchas(ttl=cfg.pow_ttl_seconds)
 siege = Siege(
     threshold=cfg.hold_threshold,
     window_seconds=cfg.hold_window_seconds,
     hold_for_seconds=cfg.hold_for_seconds,
+    volume=cfg.hold_volume,
+    volume_seconds=cfg.hold_volume_seconds,
 )
 
 camera = Camera(
@@ -344,6 +348,18 @@ async def admin_decide_held(req: HeldDecision) -> dict:
     return {"ok": True, "held": store.held_count()}
 
 
+@app.get("/api/captcha", include_in_schema=False)
+async def api_captcha() -> dict:
+    """A puzzle, only worth fetching while a siege is on.
+
+    Not sold as a wall - nothing visual is, and the module says so at length.
+    It is a fast lane: solve it and print now rather than waiting in the queue.
+    """
+    if not cfg.captcha_enabled:
+        raise HTTPException(status_code=404, detail="not found")
+    return captchas.issue()
+
+
 @app.get("/api/challenge", include_in_schema=False)
 async def api_challenge() -> dict:
     """A puzzle to solve before printing.
@@ -488,30 +504,52 @@ async def print_message(
     # a real one that arrived at a bad moment, and someone who wrote it
     # deserves to know it is queued rather than believing it printed.
     if siege.active() and not admin:
-        if store.held_count() >= cfg.hold_max_queue:
+        # The fast lane. A siege otherwise makes everyone wait for the owner;
+        # this lets a person prove they are one and print immediately, while
+        # everything that cannot or will not queues exactly as before.
+        #
+        # Failing is not refusal, which is deliberate: someone who cannot see
+        # the picture is not locked out of the printer, they just wait. That is
+        # the whole reason this can be a visual puzzle at all.
+        if req.captcha_token and cfg.captcha_enabled:
+            try:
+                captchas.redeem(req.captcha_token, req.captcha_answer)
+                log.info("captcha solved by %s during a siege", ip)
+                siege_pass = True
+            except BadCaptcha as exc:
+                log.info("captcha refused (%s) from %s", exc, ip)
+                siege_pass = False
+        else:
+            siege_pass = False
+
+        if not siege_pass:
+            if store.held_count() >= cfg.hold_max_queue:
+                if reservation is not None:
+                    store.release(reservation)
+                raise HTTPException(
+                    status_code=503,
+                    detail=("The printer is swamped and the queue is full. "
+                            "Please try again later."),
+                )
             if reservation is not None:
-                store.release(reservation)
-            raise HTTPException(
-                status_code=503,
-                detail=("The printer is swamped and the queue is full. "
-                        "Please try again later."),
+                store.finish(reservation, HELD)
+            log.info("held a message from %s (siege, %ds left)",
+                     ip, siege.seconds_left())
+            counts = store.counts(ip)
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "state": "held",
+                    "detail": ("The printer is under load right now, so your "
+                               "message is in the queue. It will print once I "
+                               "have looked at it."),
+                    "captcha_offered": cfg.captcha_enabled,
+                    "remaining_today": max(
+                        0, cfg.per_ip_daily - counts["used_today"]),
+                    "next_allowed_in": cfg.cooldown_seconds,
+                },
+                status_code=202,
             )
-        if reservation is not None:
-            store.finish(reservation, HELD)
-        log.info("held a message from %s (siege, %ds left)", ip, siege.seconds_left())
-        counts = store.counts(ip)
-        return JSONResponse(
-            {
-                "ok": True,
-                "state": "held",
-                "detail": ("The printer is under load right now, so your message "
-                           "is in the queue. It will print once I have looked at "
-                           "it."),
-                "remaining_today": max(0, cfg.per_ip_daily - counts["used_today"]),
-                "next_allowed_in": cfg.cooldown_seconds,
-            },
-            status_code=202,
-        )
 
     try:
         result = await upstream.print_message(
@@ -542,6 +580,10 @@ async def print_message(
     # so switching modes needs no restart to behave correctly.
     global _last_print
     _last_print = time.monotonic()
+    # The signal that catches a sender who stays politely under every limit.
+    # They can pace to avoid refusals; they cannot avoid the receipts.
+    if not admin:
+        siege.printed()
 
     log.info("printed %d chars for %s (job %s)", len(message), ip, result.get("job_id"))
     counts = store.counts(ip)

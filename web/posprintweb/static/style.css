@@ -173,6 +173,28 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
 .camera__frame img { width: 100%; height: auto; display: block; }
 .camera p { margin: .4rem 0 0; font-size: .82rem; }
 
+/* -- the puzzle --------------------------------------------------------- */
+
+.puzzle h2 { font-size: .95rem; margin: 0 0 .4rem; }
+.puzzle__frame {
+  position: relative; display: inline-block; max-width: 100%;
+  border: 1px solid var(--line); border-radius: .4rem; overflow: hidden;
+}
+.puzzle__frame img { display: block; width: 100%; height: auto; }
+/* An even grid over the image. Each shape sits well inside its own cell, so a
+   click anywhere in the right one counts - easier to hit on a phone than the
+   shape itself would be. */
+.puzzle__grid {
+  position: absolute; inset: 0;
+  display: grid; grid-template-rows: repeat(2, 1fr);
+}
+.puzzle__cell {
+  width: 100%; height: 100%; padding: 0; margin: 0;
+  background: transparent; border: 0; border-radius: 0; cursor: pointer;
+}
+.puzzle__cell:hover { background: rgb(0 0 0 / .06); }
+.puzzle__cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+
 /* -- form --------------------------------------------------------------- */
 
 form { display: grid; gap: 1.1rem; }

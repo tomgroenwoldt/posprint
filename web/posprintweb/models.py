@@ -41,3 +41,7 @@ class PrintMessage(BaseModel):
     # becoming a 422 about a missing field.
     challenge: str = Field("", max_length=200)
     counter: int = Field(0, ge=0)
+    # Only looked at during a siege, where solving the puzzle prints now
+    # instead of queueing. Absent the rest of the time.
+    captcha_token: str = Field("", max_length=200)
+    captcha_answer: int = Field(-1, ge=-1, le=64)

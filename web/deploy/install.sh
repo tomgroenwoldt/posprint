@@ -164,6 +164,24 @@ POSPRINTWEB_HOLD_WINDOW_SECONDS=300
 POSPRINTWEB_HOLD_FOR_SECONDS=1800
 POSPRINTWEB_HOLD_MAX_QUEUE=200
 
+# The second trigger, and the one that exists because the repository is public.
+# Refusals only happen when someone overshoots, so a reader who knows the
+# threshold above can pace exactly at the burst cap and never trip it. Nobody
+# sends sixty messages an hour to a stranger printer, however politely spaced.
+POSPRINTWEB_HOLD_VOLUME=60
+POSPRINTWEB_HOLD_VOLUME_SECONDS=3600
+
+# The visual puzzle offered during a siege: solve it and print now instead of
+# waiting in the queue. Not a wall - no captcha is, and this one is rendered by
+# code anybody can read. Failing it is not refusal, only the ordinary wait.
+POSPRINTWEB_CAPTCHA=true
+
+# Set both of these. Unset, they are random per process, which is fine for one
+# worker and breaks across a restart mid-solve. They are not in the repository
+# and must not be: openssl rand -hex 32
+#POSPRINTWEB_POW_SECRET=
+#POSPRINTWEB_CAPTCHA_SECRET=
+
 # --- live camera (optional) ------------------------------------------------
 # RTSP URL of a camera pointed at the printer. Empty disables the feed.
 # Tapo: enable Advanced Settings -> Camera Account in the app first, then
