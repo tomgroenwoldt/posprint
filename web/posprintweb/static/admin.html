@@ -33,7 +33,14 @@
     <button type="button" class="tab tab--current" data-list="new">Waiting</button>
     <button type="button" class="tab" data-list="approved">Approved</button>
     <button type="button" class="tab" data-list="hidden">Hidden</button>
+    <button type="button" class="tab" data-list="held">Held</button>
   </div>
+
+  <p id="siege" class="error" hidden></p>
+  <p id="siege-actions" class="review__actions" hidden>
+    <button type="button" id="lift" hidden>End siege mode</button>
+    <button type="button" id="empty-held" class="button--quiet">Discard all held</button>
+  </p>
 
   <p id="error" class="error" hidden></p>
 
@@ -43,8 +50,11 @@
 
   <footer>
     <p class="muted">Approving puts a message on the public gallery. Hiding
-       leaves it printed and logged but never shown. Nothing here reprints
-       anything, and every decision can be undone.</p>
+       leaves it printed and logged but never shown. Every gallery decision can
+       be undone.</p>
+    <p class="muted"><strong>Held</strong> is the exception: those messages have
+       not printed yet. While the printer is under attack nothing reaches paper
+       without you, and "Print it" is the only button here that moves any.</p>
   </footer>
 </main>
 <script src="/static/receipt.js"></script>

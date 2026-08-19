@@ -329,6 +329,55 @@ punishment rather than a queue. Both now report the truth.
 Blocked attempts never reach the insert, so hammering does not push the window
 out: a flood cannot extend its own block.
 
+### Siege mode
+
+Everything above is a **price**. The burst cap prices paper, proof of work
+prices a request, the quotas price an address. A determined sender pays them
+all and keeps going — which is what happened: the flood came back, paid, hit
+the per-minute cap and settled in to occupy every slot it allowed.
+
+Prices bound damage. They do not stop it. So while the printer is under attack,
+messages **queue for your approval instead of printing**. Nothing reaches paper
+without a decision. That is a guarantee rather than a cost, and it is the only
+thing here that is.
+
+**The trigger is refusals, not prints.** A flood bounces off the rate limits
+hundreds of times a minute because it keeps trying. Friends taking turns at a
+party produce prints and almost no refusals, because people wait for each
+other. Counting prints would put a busy evening and an attack in the same
+bucket; counting refusals separates them and errs toward leaving an ordinary
+busy night alone.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `HOLD_THRESHOLD` | 20 | Refusals within the window that start a siege. `0` disables |
+| `HOLD_WINDOW_SECONDS` | 300 | How far back refusals are counted |
+| `HOLD_FOR_SECONDS` | 1800 | How long it lasts, refreshed by further refusals |
+| `HOLD_MAX_QUEUE` | 200 | Ceiling on held messages; past it, new ones are refused |
+
+Note what the burst cap turns into during a siege. Refusals happen before the
+hold does, so the cap stops admitting messages to *paper* and starts admitting
+them to the *queue* — at the same eight a minute, with the queue ceiling behind
+it. Either way the receipt count is zero.
+
+Held messages appear under **Held** on `/admin`, oldest first, because this is
+a queue to work through rather than a feed to browse. Each has *Print it* and
+*Discard*; there is also *Discard all held*, since after a flood the queue is
+hundreds of machine-written strings and going through them individually is not
+a real option. A siege ends on its own once the hammering stops, or by hand
+with *End siege mode* — a timer cannot know the wave has passed, but the person
+looking at the queue can.
+
+Two deliberate details. The sender is **told the truth** — "your message is in
+the queue" — unlike the shadow filter, which lies on purpose; a held message is
+a real one that arrived at a bad moment and whoever wrote it deserves to know.
+And the admin key skips the hold entirely, because being locked out of your own
+printer by an attacker would be its own kind of win for them.
+
+Releasing goes through the same upstream call as an ordinary print, so a
+released message is indistinguishable on paper. If the printer fails mid-release
+the message goes back in the queue rather than being lost.
+
 ### Proof of work
 
 `GLOBAL_BURST` bounds the paper. It does not stop a flood *occupying* those
@@ -568,6 +617,10 @@ All settings are environment variables, read once at startup from
 | `POSPRINTWEB_GLOBAL_HOURLY` | `30` | Hourly cap across everyone. `0` disables |
 | `POSPRINTWEB_GLOBAL_BURST` | `8` | Per-minute cap across everyone — the one that stops a proxy-pool flood. `0` disables |
 | `POSPRINTWEB_GLOBAL_BURST_SECONDS` | `60` | The burst window |
+| `POSPRINTWEB_HOLD_THRESHOLD` | `20` | Refusals in the window that trigger siege mode. `0` disables |
+| `POSPRINTWEB_HOLD_WINDOW_SECONDS` | `300` | How far back refusals are counted |
+| `POSPRINTWEB_HOLD_FOR_SECONDS` | `1800` | How long a siege lasts, refreshed while it continues |
+| `POSPRINTWEB_HOLD_MAX_QUEUE` | `200` | Ceiling on the hold queue |
 | `POSPRINTWEB_POW_BITS` | `18` | Proof-of-work difficulty in leading zero bits. Each bit doubles the sender's cost. `0` disables |
 | `POSPRINTWEB_POW_TTL_SECONDS` | `300` | How long a challenge stays solvable |
 | `POSPRINTWEB_POW_SECRET` | *(random)* | HMAC key for challenges. Set it to survive restarts or run more than one worker |

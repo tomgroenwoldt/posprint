@@ -19,6 +19,17 @@ class GalleryDecision(BaseModel):
     action: Literal["approve", "hide", "reset"]
 
 
+class HeldDecision(BaseModel):
+    """One decision about the hold queue.
+
+    `id` is ignored by the actions that do not name a single message; it stays
+    required so a mistyped action cannot silently empty the queue.
+    """
+
+    id: int = Field(1, ge=1)
+    action: Literal["print", "discard", "empty", "lift"]
+
+
 class PrintMessage(BaseModel):
     # These caps are far above the configured limits and exist only to stop a
     # multi-megabyte body from reaching the Unicode normaliser. The real limits

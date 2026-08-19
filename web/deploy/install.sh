@@ -153,6 +153,17 @@ POSPRINTWEB_GLOBAL_BURST_SECONDS=60
 POSPRINTWEB_POW_BITS=18
 POSPRINTWEB_POW_TTL_SECONDS=300
 
+# Siege mode: the only control here that is a guarantee rather than a price.
+# While the printer is under attack, messages queue for approval on /admin
+# instead of printing, so nothing reaches paper without you. The trigger is
+# refusals rather than prints - a flood hammers a closed door hundreds of times
+# a minute, friends taking turns do not - which is what keeps this switched off
+# during an ordinary busy evening. 0 disables.
+POSPRINTWEB_HOLD_THRESHOLD=20
+POSPRINTWEB_HOLD_WINDOW_SECONDS=300
+POSPRINTWEB_HOLD_FOR_SECONDS=1800
+POSPRINTWEB_HOLD_MAX_QUEUE=200
+
 # --- live camera (optional) ------------------------------------------------
 # RTSP URL of a camera pointed at the printer. Empty disables the feed.
 # Tapo: enable Advanced Settings -> Camera Account in the app first, then

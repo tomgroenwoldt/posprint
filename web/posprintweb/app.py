@@ -45,8 +45,9 @@ from .filters import (
     printable_charset,
 )
 from .challenge import BadChallenge, Challenges
-from .models import GalleryDecision, PrintMessage
-from .store import QuotaExceeded, Store
+from .siege import Siege
+from .models import GalleryDecision, HeldDecision, PrintMessage
+from .store import HELD, QuotaExceeded, Store
 from .upstream import Upstream, UpstreamError
 
 log = logging.getLogger("posprintweb")
@@ -74,6 +75,11 @@ CHARSET = printable_charset(cfg.codepage)
 store = Store(cfg.db_path, TZ) if TZ else Store(cfg.db_path, datetime.now().astimezone().tzinfo)
 upstream = Upstream(cfg.upstream_url, cfg.upstream_key, cfg.upstream_timeout)
 challenges = Challenges(bits=cfg.pow_bits, ttl=cfg.pow_ttl_seconds)
+siege = Siege(
+    threshold=cfg.hold_threshold,
+    window_seconds=cfg.hold_window_seconds,
+    hold_for_seconds=cfg.hold_for_seconds,
+)
 
 camera = Camera(
     cfg.camera_url,
@@ -260,6 +266,84 @@ async def status(request: Request) -> dict:
     }
 
 
+@app.get("/api/admin/held", dependencies=[Depends(require_admin)],
+         include_in_schema=False)
+async def admin_held(limit: int = 50) -> dict:
+    """The queue, plus whether the siege that filled it is still running."""
+    return {
+        "queue": store.held(limit),
+        "held": store.held_count(),
+        "siege": siege.status(),
+        **_render_context(),
+    }
+
+
+@app.post("/api/admin/held", dependencies=[Depends(require_admin)],
+          include_in_schema=False)
+async def admin_decide_held(req: HeldDecision) -> dict:
+    """Print one held message, discard one, or empty the queue.
+
+    Printing here goes through the same upstream call as an ordinary print, so
+    a released message is indistinguishable on paper from one that was never
+    held. Braille is re-prepared rather than stored as a bitmap: the message is
+    the thing that was kept, and the picture is derived from it.
+    """
+    if req.action == "empty":
+        discarded = store.discard_all_held()
+        log.info("discarded %d held messages", discarded)
+        return {"ok": True, "discarded": discarded, "held": store.held_count()}
+
+    if req.action == "discard":
+        if not store.discard_held(req.id):
+            raise HTTPException(status_code=404, detail="not in the queue")
+        return {"ok": True, "held": store.held_count()}
+
+    if req.action == "lift":
+        siege.lift()
+        log.info("siege lifted by hand")
+        return {"ok": True, "siege": siege.status(), "held": store.held_count()}
+
+    # Claimed inside the UPDATE, so two clicks cannot both start a print.
+    row = store.take_held(req.id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="not in the queue")
+
+    art = None
+    if cfg.braille_enabled and braille.contains(row["message"]):
+        try:
+            art = braille.prepare(
+                clean(row["message"]),
+                max_cols=cfg.braille_max_cols,
+                max_rows=cfg.braille_max_rows,
+                printer_dots=cfg.printer_dots,
+                max_scale=cfg.braille_max_scale,
+                max_dots=cfg.braille_max_dots,
+            )
+        except braille.Rejected:
+            art = None
+
+    try:
+        result = await upstream.print_message(
+            message=row["message"],
+            name=row["name"],
+            columns=cfg.columns,
+            when=now_local(),
+            image_png=art.png if art else None,
+        )
+    except UpstreamError as exc:
+        # Back in the queue rather than lost, so a paper jam during a release
+        # does not quietly destroy someone's message.
+        store.set_state(req.id, HELD)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    store.set_state(req.id, "printed", result.get("job_id", ""))
+    global _last_print
+    _last_print = time.monotonic()
+    log.info("released a held message (%d chars, job %s)",
+             len(row["message"]), result.get("job_id"))
+    return {"ok": True, "held": store.held_count()}
+
+
 @app.get("/api/challenge", include_in_schema=False)
 async def api_challenge() -> dict:
     """A puzzle to solve before printing.
@@ -289,6 +373,7 @@ async def print_message(
             challenges.redeem(req.challenge, req.counter)
         except BadChallenge as exc:
             log.info("proof of work refused (%s) from %s", exc, client_ip(request))
+            siege.refused()
             # 428: the request is fine, it is missing a precondition. The page
             # fetches a fresh challenge and solves it again; nothing about
             # which part failed is worth telling a sender who is guessing.
@@ -363,6 +448,10 @@ async def print_message(
                 repeat_hours=cfg.repeat_hours,
             )
         except QuotaExceeded as exc:
+            # What tells an attack apart from a busy evening. Someone who keeps
+            # hammering a closed door reports themselves; people taking turns
+            # do not, because they wait.
+            siege.refused()
             return JSONResponse(
                 {"detail": exc.reason},
                 status_code=429,
@@ -389,6 +478,39 @@ async def print_message(
                 "next_allowed_in": cfg.cooldown_seconds,
             },
             status_code=200,
+        )
+
+    # Under siege, nothing reaches paper without a decision. This is the only
+    # control here that is a guarantee rather than a price: a sender who can
+    # afford every other cost still cannot make the printer print.
+    #
+    # The sender is told the truth, unlike the shadow filter. A held message is
+    # a real one that arrived at a bad moment, and someone who wrote it
+    # deserves to know it is queued rather than believing it printed.
+    if siege.active() and not admin:
+        if store.held_count() >= cfg.hold_max_queue:
+            if reservation is not None:
+                store.release(reservation)
+            raise HTTPException(
+                status_code=503,
+                detail=("The printer is swamped and the queue is full. "
+                        "Please try again later."),
+            )
+        if reservation is not None:
+            store.finish(reservation, HELD)
+        log.info("held a message from %s (siege, %ds left)", ip, siege.seconds_left())
+        counts = store.counts(ip)
+        return JSONResponse(
+            {
+                "ok": True,
+                "state": "held",
+                "detail": ("The printer is under load right now, so your message "
+                           "is in the queue. It will print once I have looked at "
+                           "it."),
+                "remaining_today": max(0, cfg.per_ip_daily - counts["used_today"]),
+                "next_allowed_in": cfg.cooldown_seconds,
+            },
+            status_code=202,
         )
 
     try:

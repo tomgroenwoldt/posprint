@@ -848,3 +848,161 @@ def test_zero_bits_disables_the_check(monkeypatch):
     monkeypatch.setattr(appmod, "store", Store(":memory:", appmod.TZ))
     with TestClient(appmod.app) as client:      # harness runs with pow_bits=0
         assert client.post("/api/print", json={"message": "no proof"}).status_code == 200
+
+
+def _under_siege(monkeypatch, **overrides):
+    """An app configured to hold, with a fresh store and siege state."""
+    from dataclasses import replace
+
+    from posprintweb.siege import Siege
+
+    settings = dict(global_burst=2, global_burst_seconds=60,
+                    hold_threshold=2, cooldown_seconds=0, per_ip_daily=0)
+    settings.update(overrides)
+    monkeypatch.setattr(appmod, "cfg", replace(appmod.cfg, **settings))
+    monkeypatch.setattr(appmod, "siege", Siege(
+        threshold=settings["hold_threshold"], window_seconds=300.0,
+        hold_for_seconds=1800.0))
+    monkeypatch.setattr(appmod, "store", Store(":memory:", appmod.TZ))
+
+
+def test_a_flood_ends_up_printing_nothing(monkeypatch):
+    """The whole point. Every other control prices abuse and hopes the price is
+    enough; this one removes the outcome.
+
+    Note what the burst cap turns into here. Refusals arrive before the hold
+    does, so while a siege is on, the cap stops admitting messages to *paper*
+    and starts admitting them to the *queue* - at the same 8 a minute, with the
+    queue ceiling behind it. Either way the number of receipts is zero.
+    """
+    _under_siege(monkeypatch)
+
+    with TestClient(appmod.app) as client:
+        printed = refused = 0
+        for i in range(40):                      # the flood, addresses and all
+            r = send(client, message=f"flood {i}", ip=f"172.59.{i}.{i}")
+            if r.status_code == 200:
+                printed += 1
+            elif r.status_code != 202:
+                refused += 1
+
+        assert refused > 0                       # the burst cap, doing its job
+        # Two got through before the siege triggered, and nothing after: the
+        # printer is no longer something the sender can reach.
+        assert printed == 2
+        assert appmod.siege.active() is True
+
+
+def test_messages_are_held_rather_than_printed_during_a_siege(monkeypatch):
+    """With the paper cap out of the way, so this is about the hold itself."""
+    _under_siege(monkeypatch, global_burst=0)
+    appmod.siege.refused()
+    appmod.siege.refused()
+    assert appmod.siege.active() is True
+
+    with TestClient(appmod.app) as client:
+        codes = [send(client, message=f"m{i}", ip=f"10.2.0.{i}").status_code
+                 for i in range(6)]
+        queue = client.get("/api/admin/held",
+                           headers={"X-Admin-Key": "admin-secret"}).json()
+
+    assert codes == [202] * 6                    # accepted, none printed
+    assert queue["held"] == 6
+    assert queue["siege"]["active"] is True
+    # Oldest first: a queue to work through, not a feed to browse.
+    assert [e["message"] for e in queue["queue"]][:2] == ["m0", "m1"]
+
+
+def test_a_held_message_tells_the_sender_the_truth(monkeypatch):
+    """Unlike the shadow filter, which lies on purpose. A held message is a
+    real one that arrived at a bad moment, and its sender should know."""
+    _under_siege(monkeypatch)
+
+    with TestClient(appmod.app) as client:
+        for i in range(12):
+            r = send(client, message=f"flood {i}", ip=f"10.0.0.{i}")
+
+        assert r.status_code in (202, 429)
+        if r.status_code == 202:
+            body = r.json()
+            assert body["state"] == "held"
+            assert "queue" in body["detail"]
+
+
+def test_the_owner_can_release_or_discard(monkeypatch):
+    _under_siege(monkeypatch, global_burst=0)
+    appmod.siege.refused()
+    appmod.siege.refused()
+    key = {"X-Admin-Key": "admin-secret"}
+
+    with TestClient(appmod.app) as client:
+        for i in range(6):
+            send(client, message=f"m{i}", ip=f"10.3.0.{i}")
+
+        queue = client.get("/api/admin/held", headers=key).json()["queue"]
+        assert len(queue) == 6
+
+        # Releasing one actually prints it.
+        r = client.post("/api/admin/held",
+                        json={"id": queue[0]["id"], "action": "print"}, headers=key)
+        assert r.status_code == 200
+        assert r.json()["held"] == 5
+
+        # And it cannot be printed twice, however many times the button is hit.
+        again = client.post("/api/admin/held",
+                            json={"id": queue[0]["id"], "action": "print"}, headers=key)
+        assert again.status_code == 404
+
+        # One discarded stays in the log rather than vanishing.
+        client.post("/api/admin/held",
+                    json={"id": queue[1]["id"], "action": "discard"}, headers=key)
+
+        # The rest go in one sweep, because after a flood there are hundreds.
+        emptied = client.post("/api/admin/held",
+                              json={"id": 1, "action": "empty"}, headers=key).json()
+        assert emptied["held"] == 0
+
+
+def test_the_siege_can_be_lifted_by_hand(monkeypatch):
+    _under_siege(monkeypatch)
+    key = {"X-Admin-Key": "admin-secret"}
+
+    with TestClient(appmod.app) as client:
+        for i in range(12):
+            send(client, message=f"flood {i}", ip=f"10.0.0.{i}")
+        assert appmod.siege.active() is True
+
+        r = client.post("/api/admin/held", json={"id": 1, "action": "lift"},
+                        headers=key)
+        assert r.status_code == 200
+        assert r.json()["siege"]["active"] is False
+
+
+def test_the_hold_queue_has_a_ceiling(monkeypatch):
+    """A long siege must not be a way to grow the database without bound."""
+    _under_siege(monkeypatch, hold_max_queue=3, global_burst=0)
+
+    with TestClient(appmod.app) as client:
+        appmod.siege.refused(); appmod.siege.refused()
+        assert appmod.siege.active() is True
+
+        codes = [send(client, message=f"m{i}", ip=f"10.1.0.{i}").status_code
+                 for i in range(6)]
+
+    assert codes.count(202) == 3
+    assert codes.count(503) == 3
+
+
+def test_the_admin_still_prints_during_a_siege(monkeypatch):
+    """Being locked out of your own printer by an attacker would be its own
+    kind of win for them."""
+    _under_siege(monkeypatch)
+
+    with TestClient(appmod.app) as client:
+        for i in range(12):
+            send(client, message=f"flood {i}", ip=f"10.0.0.{i}")
+        assert appmod.siege.active() is True
+
+        r = client.post("/api/print", json={"message": "mine"},
+                        headers={"X-Admin-Key": "admin-secret"})
+    assert r.status_code == 200

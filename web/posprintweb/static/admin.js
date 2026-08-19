@@ -23,11 +23,16 @@ const ACTIONS = {
   new: [["approve", "Approve", ""], ["hide", "Hide", "button--quiet"]],
   approved: [["hide", "Remove from gallery", "button--quiet"]],
   hidden: [["approve", "Publish", ""], ["reset", "Back to queue", "button--quiet"]],
+  // The hold queue is a different question from the gallery. These messages
+  // have not printed yet, and "print" here is the only button on this page
+  // that moves paper.
+  held: [["print", "Print it", ""], ["discard", "Discard", "button--quiet"]],
 };
 const EMPTY = {
   new: "Nothing waiting. All caught up.",
   approved: "Nothing published yet.",
   hidden: "Nothing hidden.",
+  held: "Nothing held. The printer is keeping up.",
 };
 
 let list = "new";
@@ -95,11 +100,12 @@ function itemNode(entry) {
     button.addEventListener("click", async () => {
       actions.querySelectorAll("button").forEach((b) => (b.disabled = true));
       try {
-        const body = await api("/api/admin/gallery", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: entry.id, action }),
-        });
+        const body = await api(
+          list === "held" ? "/api/admin/held" : "/api/admin/gallery", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: entry.id, action }),
+          });
         li.remove();
         showCounts(body.counts);
         showEmpty();
@@ -113,6 +119,41 @@ function itemNode(entry) {
 
   li.append(paper, meta, actions);
   return li;
+}
+
+// The banner is only interesting while something is being held back, so it
+// stays out of the way the rest of the time.
+function showSiege(state, held) {
+  const banner = $("siege");
+  if (!banner) return;
+  if (!state && !held) { banner.hidden = true; return; }
+
+  const active = state && state.active;
+  banner.hidden = !(active || held);
+  banner.className = active ? "error" : "error error--info";
+  const plural = held === 1 ? "message is" : "messages are";
+  banner.textContent = active
+    ? `Siege mode: nothing is printing without you. ${held} waiting, ` +
+      `${state.refusals_in_window} refusals in the last few minutes, ` +
+      `${Math.ceil(state.seconds_left / 60)} min left.`
+    : `${held} ${plural} still waiting from an earlier siege.`;
+
+  $("siege-actions").hidden = !(active || held);
+  $("lift").hidden = !active;
+}
+
+async function bulk(action) {
+  try {
+    const body = await api("/api/admin/held", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: 1, action }),
+    });
+    showSiege(body.siege, body.held);
+    load();
+  } catch (err) {
+    fail(err.message);
+  }
 }
 
 function showCounts(counts) {
@@ -131,7 +172,9 @@ async function load() {
     return;
   }
   try {
-    const body = await api(`/api/admin/queue?gallery=${list}`);
+    const body = list === "held"
+      ? await api("/api/admin/held")
+      : await api(`/api/admin/queue?gallery=${list}`);
     columns = body.columns || columns;
     if (body.charset) {
       charset = {
@@ -140,7 +183,8 @@ async function load() {
       };
     }
     el.queue.replaceChildren(...body.queue.map(itemNode));
-    showCounts(body.counts);
+    if (body.counts) showCounts(body.counts);
+    showSiege(body.siege, body.held);
     showEmpty();
     el.error.hidden = true;
   } catch (err) {
@@ -154,6 +198,13 @@ async function load() {
     }
   }
 }
+
+$("lift").addEventListener("click", () => bulk("lift"));
+$("empty-held").addEventListener("click", () => {
+  // After a flood the queue is hundreds of machine-written strings, and going
+  // through them one at a time is not a real option.
+  if (confirm("Discard every held message? They stay in the log.")) bulk("empty");
+});
 
 for (const tab of document.querySelectorAll(".tab")) {
   tab.addEventListener("click", () => {

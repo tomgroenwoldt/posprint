@@ -58,6 +58,11 @@ MIGRATIONS = [
 # that filter is that it quietly does not exist.
 GALLERY_ELIGIBLE = "printed"
 
+# Accepted, charged for, and deliberately not printed until someone says so.
+# Distinct from 'shadowed', which is never printed and never shown: a held
+# message is a real one that arrived at a bad moment.
+HELD = "held"
+
 
 def fingerprint(text: str) -> str:
     """Identify a message by what it *looks* like, not by its exact bytes.
@@ -279,6 +284,20 @@ class Store:
             )
             self._db.commit()
 
+    def set_state(self, row_id: int, state: str, job_id: str = "") -> None:
+        """finish(), for a row that has outlived its Reservation.
+
+        Releasing something from the hold queue happens in a later request than
+        the one that queued it, so there is no reservation object left to
+        finish - only an id.
+        """
+        with self._lock:
+            self._db.execute(
+                "UPDATE prints SET state = ?, job_id = ? WHERE id = ?",
+                (state, job_id, row_id),
+            )
+            self._db.commit()
+
     def release(self, res: Reservation) -> None:
         """Hand the quota back after an upstream failure.
 
@@ -409,6 +428,71 @@ class Store:
             )
             self._db.commit()
             return cur.rowcount > 0
+
+    # -- the hold queue ---------------------------------------------------
+
+    def held(self, limit: int = 50) -> list[dict]:
+        """Messages waiting for a decision, oldest first.
+
+        Oldest first, unlike every other listing here: this is a queue to work
+        through rather than a feed to browse, and whoever has been waiting
+        longest should print first.
+        """
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, ts, ip, name, message FROM prints "
+                "WHERE state = ? ORDER BY id ASC LIMIT ?",
+                (HELD, max(1, min(limit, 200))),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def held_count(self) -> int:
+        with self._lock:
+            return self._db.execute(
+                "SELECT COUNT(*) AS n FROM prints WHERE state = ?", (HELD,)
+            ).fetchone()["n"]
+
+    def take_held(self, row_id: int) -> dict | None:
+        """Claim one held message, or None if it is not there to claim.
+
+        The state moves to 'pending' inside the same statement that selects it,
+        so two clicks on the same entry cannot both start a print. Whoever gets
+        rowcount 1 owns it; the loser sees None and a row that has already gone.
+        """
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE prints SET state = 'pending' WHERE id = ? AND state = ?",
+                (row_id, HELD),
+            )
+            if cur.rowcount != 1:
+                self._db.rollback()
+                return None
+            row = self._db.execute(
+                "SELECT id, ts, ip, name, message FROM prints WHERE id = ?",
+                (row_id,),
+            ).fetchone()
+            self._db.commit()
+            return dict(row) if row else None
+
+    def discard_held(self, row_id: int) -> bool:
+        """Refuse one held message. It stays in the log as evidence."""
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE prints SET state = 'rejected' WHERE id = ? AND state = ?",
+                (row_id, HELD),
+            )
+            self._db.commit()
+            return cur.rowcount > 0
+
+    def discard_all_held(self) -> int:
+        """The whole queue at once, which after a flood is the only usable
+        size of broom."""
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE prints SET state = 'rejected' WHERE state = ?", (HELD,)
+            )
+            self._db.commit()
+            return cur.rowcount
 
     def review_counts(self) -> dict[str, int]:
         with self._lock:

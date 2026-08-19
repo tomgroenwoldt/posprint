@@ -197,6 +197,28 @@ class Config:
     pow_bits: int = 18
     pow_ttl_seconds: int = 300
 
+    # Siege mode: the only thing here that is a guarantee rather than a cost.
+    #
+    # Every other control raises the price of abuse and hopes the price is high
+    # enough. This one removes the outcome: while under siege, nothing reaches
+    # paper until it has been looked at. An attacker who can pay every other
+    # cost still cannot make the printer print.
+    #
+    # The trigger is *rejections*, not prints. A flood generates hundreds of
+    # refusals a minute bouncing off the burst cap; a room full of friends
+    # taking turns generates almost none, because they are not hammering. That
+    # difference is what keeps this switched off during ordinary busy periods.
+    #
+    # 0 disables, and the printer goes back to printing whatever gets past the
+    # quotas.
+    hold_threshold: int = 20
+    hold_window_seconds: int = 300
+    # How long a siege lasts once triggered, refreshed by further rejections.
+    hold_for_seconds: int = 1800
+    # Held messages cost a database row, so a long siege has a ceiling. Past
+    # it, new messages are refused outright rather than queued.
+    hold_max_queue: int = 200
+
     # The forwarding header is attacker-controlled unless something trusted
     # overwrites it. Only turn this on when a reverse proxy or tunnel is
     # actually in front, otherwise every rate limit becomes bypassable with one
@@ -288,6 +310,10 @@ class Config:
             shadow_delay_ms=_env_int("POSPRINTWEB_SHADOW_DELAY_MS", 900),
             repeat_hours=_env_int("POSPRINTWEB_REPEAT_HOURS", 24),
             global_hourly=_env_int("POSPRINTWEB_GLOBAL_HOURLY", 30),
+            hold_threshold=_env_int("POSPRINTWEB_HOLD_THRESHOLD", 20),
+            hold_window_seconds=_env_int("POSPRINTWEB_HOLD_WINDOW_SECONDS", 300),
+            hold_for_seconds=_env_int("POSPRINTWEB_HOLD_FOR_SECONDS", 1800),
+            hold_max_queue=_env_int("POSPRINTWEB_HOLD_MAX_QUEUE", 200),
             pow_bits=_env_int("POSPRINTWEB_POW_BITS", 18),
             pow_ttl_seconds=_env_int("POSPRINTWEB_POW_TTL_SECONDS", 300),
             global_burst=_env_int("POSPRINTWEB_GLOBAL_BURST", 8),
