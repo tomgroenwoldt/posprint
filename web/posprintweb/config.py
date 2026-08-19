@@ -171,6 +171,21 @@ class Config:
     # budget would. 0 disables.
     global_hourly: int = 30
 
+    # The short-window cap, and the only limit that meaningfully answers a
+    # flood from a rented proxy pool. Everything keyed on IP is worth nothing
+    # against someone renting a new address per request - one such run managed
+    # 2.6 prints a second across 50 addresses, none of them repeated.
+    #
+    # A minute is deliberately the shortest useful window. It is fatal to a
+    # flood, invisible to a person (the per-IP cooldown is already 60s, so one
+    # visitor cannot reach it alone), and self-healing: the worst a legitimate
+    # visitor waits is until the oldest print in the window ages out, which is
+    # under a minute and is reported exactly in Retry-After. That is the
+    # difference from global_hourly, whose flat ten-minute answer was what made
+    # it feel like a punishment. 0 disables.
+    global_burst: int = 8
+    global_burst_seconds: int = 60
+
     # The forwarding header is attacker-controlled unless something trusted
     # overwrites it. Only turn this on when a reverse proxy or tunnel is
     # actually in front, otherwise every rate limit becomes bypassable with one
@@ -262,6 +277,9 @@ class Config:
             shadow_delay_ms=_env_int("POSPRINTWEB_SHADOW_DELAY_MS", 900),
             repeat_hours=_env_int("POSPRINTWEB_REPEAT_HOURS", 24),
             global_hourly=_env_int("POSPRINTWEB_GLOBAL_HOURLY", 30),
+            global_burst=_env_int("POSPRINTWEB_GLOBAL_BURST", 8),
+            global_burst_seconds=_env_int(
+                "POSPRINTWEB_GLOBAL_BURST_SECONDS", 60),
             trust_proxy=_env_bool("POSPRINTWEB_TRUST_PROXY", False),
             client_ip_header=os.environ.get(
                 "POSPRINTWEB_CLIENT_IP_HEADER", "x-forwarded-for"

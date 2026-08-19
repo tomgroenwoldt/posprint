@@ -133,6 +133,15 @@ POSPRINTWEB_REPEAT_HOURS=24
 # daily budget would. 0 disables.
 POSPRINTWEB_GLOBAL_HOURLY=30
 
+# The short window, and the only limit that answers a flood from a rented
+# proxy pool: rotating addresses defeats everything keyed on IP, and random
+# text defeats the repeat check. A minute is fatal to a flood and invisible to
+# a person, since the per-IP cooldown already stops anyone reaching it alone.
+# Retry-After says exactly when a slot frees, so the worst wait is under a
+# minute. 0 disables.
+POSPRINTWEB_GLOBAL_BURST=8
+POSPRINTWEB_GLOBAL_BURST_SECONDS=60
+
 # --- live camera (optional) ------------------------------------------------
 # RTSP URL of a camera pointed at the printer. Empty disables the feed.
 # Tapo: enable Advanced Settings -> Camera Account in the app first, then

@@ -128,6 +128,8 @@ class Store:
         per_ip_daily: int,
         global_daily: int,
         global_hourly: int = 0,
+        global_burst: int = 0,
+        global_burst_seconds: int = 60,
         repeat_hours: int = 0,
         now: float | None = None,
     ) -> Reservation:
@@ -200,18 +202,30 @@ class Store:
                             retry_after=wait,
                         )
 
+                # The short window, and the only limit that answers a flood
+                # from a rented proxy pool: rotating addresses defeats every
+                # check above, and random text defeats the fingerprint.
+                #
+                # Checked before the hourly one so a burst is reported with the
+                # shorter, truthful wait rather than the longer one.
+                if global_burst > 0:
+                    window = self._window(cur, now, global_burst_seconds)
+                    if window["n"] >= global_burst:
+                        raise QuotaExceeded(
+                            "The printer is keeping up with a rush. "
+                            "Try again in a moment.",
+                            retry_after=self._until_free(
+                                now, window, global_burst_seconds),
+                        )
+
                 if global_hourly > 0:
-                    recent = cur.execute(
-                        "SELECT COUNT(*) AS n FROM prints "
-                        "WHERE ts > ? AND state != 'rejected'",
-                        (now - 3600,),
-                    ).fetchone()["n"]
-                    if recent >= global_hourly:
+                    window = self._window(cur, now, 3600)
+                    if window["n"] >= global_hourly:
                         # Blunts a burst without ending the day for everyone,
                         # which the daily cap alone would do.
                         raise QuotaExceeded(
                             "The printer is busy right now. Try again later.",
-                            retry_after=600,
+                            retry_after=self._until_free(now, window, 3600),
                         )
 
                 cur.execute(
@@ -225,6 +239,32 @@ class Store:
             except Exception:
                 self._db.rollback()
                 raise
+
+    @staticmethod
+    def _window(cur, now: float, seconds: int):
+        """How many prints are in the last `seconds`, and the oldest of them.
+
+        The oldest is what says when a slot frees, which is the difference
+        between "try again later" and a number someone can act on.
+        """
+        return cur.execute(
+            "SELECT COUNT(*) AS n, MIN(ts) AS oldest FROM prints "
+            "WHERE ts > ? AND state != 'rejected'",
+            (now - seconds,),
+        ).fetchone()
+
+    @staticmethod
+    def _until_free(now: float, window, seconds: int) -> int:
+        """When the oldest print in the window ages out of it.
+
+        A sliding window frees exactly one slot at that moment, so this is the
+        real answer rather than a flat guess. Blocked attempts never reach the
+        INSERT, so hammering does not push this number out.
+        """
+        oldest = window["oldest"]
+        if oldest is None:                  # window emptied under us
+            return 1
+        return max(1, int(seconds - (now - oldest)) + 1)
 
     def _seconds_to_midnight(self, now: float) -> int:
         local = datetime.fromtimestamp(now, self._tz)

@@ -28,9 +28,11 @@ os.environ.update(
     # test_shadow.py, and through the API by the tests that switch them on.
     POSPRINTWEB_REPEAT_HOURS="0",
     POSPRINTWEB_GLOBAL_HOURLY="0",
+    POSPRINTWEB_GLOBAL_BURST="0",
 )
 
 from posprintweb import app as appmod  # noqa: E402
+from posprintweb.store import Store  # noqa: E402
 from posprintweb.upstream import UpstreamError  # noqa: E402
 
 
@@ -751,3 +753,31 @@ def test_the_camera_feed_is_read_rather_than_pointed_at():
     # The two ways a dead feed shows itself, both of which must stay handled.
     assert "CAMERA_TIMEOUT" in js
     assert "feed ended" in js
+
+
+def test_the_burst_cap_holds_across_addresses(monkeypatch):
+    """The API-level check: a flood from many addresses is still capped.
+
+    TRUST_PROXY is on in this harness, so each request presents its own
+    X-Forwarded-For - which is exactly the attacker's position when they have
+    a pool of real addresses to rotate through, and the position in which every
+    other limit here is worthless.
+    """
+    from dataclasses import replace
+
+    monkeypatch.setattr(appmod, "cfg", replace(
+        appmod.cfg, global_burst=3, global_burst_seconds=60))
+    monkeypatch.setattr(appmod, "store", Store(":memory:", appmod.TZ))
+
+    with TestClient(appmod.app) as client:
+        codes = [
+            send(client, message=f"flood {i}", ip=f"172.59.{i}.{i}").status_code
+            for i in range(8)
+        ]
+        assert codes[:3] == [200, 200, 200]
+        assert set(codes[3:]) == {429}
+
+        # And it says when, rather than "later".
+        blocked = send(client, message="one more", ip="203.0.113.7")
+        assert blocked.status_code == 429
+        assert 0 < int(blocked.headers["Retry-After"]) <= 60
