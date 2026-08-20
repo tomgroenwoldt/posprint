@@ -244,6 +244,16 @@ class Config:
     # proxy does not overwrite is a silent bypass, not a loud misconfiguration.
     client_ip_header: str = "x-forwarded-for"
 
+    # How many proxies of our own stand in front. The client address is that
+    # many entries from the *end* of the forwarding header, because each proxy
+    # appends the peer it saw: the last entry is the one ours wrote, and
+    # anything to the left of it is whatever the sender chose to claim.
+    #
+    # 1 for a single Caddy or nginx. 2 if Cloudflare sits in front of that.
+    # Getting it too high fails safe - the header will be shorter than the
+    # chain claims and the socket peer is used instead.
+    proxy_hops: int = 1
+
     db_path: str = "/var/lib/posprintweb/prints.db"
 
     # Optional bypass for the owner: these keys skip cooldown, quotas and quiet
@@ -337,6 +347,7 @@ class Config:
             global_burst_seconds=_env_int(
                 "POSPRINTWEB_GLOBAL_BURST_SECONDS", 60),
             trust_proxy=_env_bool("POSPRINTWEB_TRUST_PROXY", False),
+            proxy_hops=_env_int("POSPRINTWEB_PROXY_HOPS", 1),
             client_ip_header=os.environ.get(
                 "POSPRINTWEB_CLIENT_IP_HEADER", "x-forwarded-for"
             )

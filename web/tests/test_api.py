@@ -1044,3 +1044,51 @@ def test_solving_the_puzzle_prints_instead_of_queueing(monkeypatch):
             "captcha_answer": (right + 1) % other["tiles"],
         }, headers={"X-Forwarded-For": "10.4.0.3"})
         assert wrong.status_code == 202
+
+
+def test_a_supplied_forwarding_header_cannot_choose_the_address(monkeypatch):
+    """The header is read from the right, so what a sender puts in it is noise.
+
+    A proxy appends the peer address it saw. The last entry is therefore the
+    one our proxy wrote; everything to its left is whatever the sender claimed.
+    Reading leftmost trusts the sender, which is the whole bug.
+    """
+    from dataclasses import replace
+
+    monkeypatch.setattr(appmod, "cfg", replace(appmod.cfg, proxy_hops=1))
+
+    class FakeRequest:
+        def __init__(self, header, peer):
+            self.headers = {"x-forwarded-for": header}
+            self.client = type("C", (), {"host": peer})()
+
+    # What Caddy produces when it appends: the sender's lie, then the truth.
+    spoofed = FakeRequest("203.0.113.99, 198.51.100.7", "10.0.0.1")
+    assert appmod.client_ip(spoofed) == "198.51.100.7"
+
+    # A pile of lies changes nothing; only the last entry is ours.
+    many = FakeRequest("1.1.1.1, 2.2.2.2, 3.3.3.3, 198.51.100.7", "10.0.0.1")
+    assert appmod.client_ip(many) == "198.51.100.7"
+
+    # What Caddy produces when it overwrites, which is still correct.
+    clean = FakeRequest("198.51.100.7", "10.0.0.1")
+    assert appmod.client_ip(clean) == "198.51.100.7"
+
+
+def test_a_header_shorter_than_the_configured_chain_falls_back(monkeypatch):
+    """Fails to the socket peer, which is a real address whatever else is
+    misconfigured - TCP will not complete a handshake for a forged one."""
+    from dataclasses import replace
+
+    monkeypatch.setattr(appmod, "cfg", replace(appmod.cfg, proxy_hops=2))
+
+    class FakeRequest:
+        def __init__(self, header, peer):
+            self.headers = {"x-forwarded-for": header}
+            self.client = type("C", (), {"host": peer})()
+
+    assert appmod.client_ip(FakeRequest("203.0.113.99", "10.0.0.1")) == "10.0.0.1"
+    assert appmod.client_ip(FakeRequest("", "10.0.0.1")) == "10.0.0.1"
+    # With the full chain present, the client is two from the end.
+    two = FakeRequest("203.0.113.99, 198.51.100.7, 10.9.9.9", "10.0.0.1")
+    assert appmod.client_ip(two) == "198.51.100.7"

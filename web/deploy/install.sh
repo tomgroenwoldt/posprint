@@ -211,6 +211,13 @@ POSPRINTWEB_CAMERA_KILLSWITCH=/etc/posprintweb-camera.disabled
 # themselves unlimited prints.
 POSPRINTWEB_TRUST_PROXY=false
 
+# How many proxies of your own stand in front. The client address is that
+# many entries from the END of X-Forwarded-For, because each proxy appends
+# the peer it saw - so the last entry is the one yours wrote and anything
+# left of it is whatever the sender claimed. 1 for Caddy alone, 2 if
+# Cloudflare is in front of it. Too high fails safe.
+POSPRINTWEB_PROXY_HOPS=1
+
 # The single header trusted for the client address. Must name a header the
 # proxy in front OVERWRITES, not one it merely appends to or passes through:
 #   Caddy / nginx / HAProxy -> x-forwarded-for

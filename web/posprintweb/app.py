@@ -155,13 +155,29 @@ def client_ip(request: Request) -> str:
     X-Forwarded-For but does not strip CF-Connecting-IP, a visitor supplies the
     header nobody is overwriting and the rate limiter follows it.
 
-    Whatever proxy is in front must *overwrite* this header rather than append
-    to it, or the leftmost value is still attacker-supplied. See the README.
+    **Counted from the right, not the left.** Each proxy in the chain appends
+    the peer address it saw, so the last entry is the one *our* proxy wrote and
+    everything before it is whatever the sender chose to claim. Reading the
+    leftmost value trusts the sender; reading from the right trusts the proxy.
+
+    That makes a missing `header_up X-Forwarded-For {remote_host}` in Caddy an
+    inefficiency rather than a hole. With the header overwritten there is one
+    entry and this reads it; with it appended there are several and this reads
+    the only one that was not attacker-supplied.
+
+    proxy_hops is how many proxies of our own are in front. The client is the
+    (hops)th entry from the end. If the header is shorter than that, the chain
+    is not what the configuration claims, so the socket peer is used instead -
+    which is a real address whatever else is wrong.
     """
     if cfg.trust_proxy:
-        fwd = request.headers.get(cfg.client_ip_header, "")
-        if fwd:
-            return fwd.split(",")[0].strip()
+        forwarded = [
+            part.strip()
+            for part in request.headers.get(cfg.client_ip_header, "").split(",")
+            if part.strip()
+        ]
+        if len(forwarded) >= cfg.proxy_hops >= 1:
+            return forwarded[-cfg.proxy_hops]
     return request.client.host if request.client else "unknown"
 
 

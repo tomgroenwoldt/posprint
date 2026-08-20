@@ -168,11 +168,23 @@ print.example.com {
 }
 ```
 
-Both `header_up` lines are load-bearing. `reverse_proxy` *appends* to any
-inbound `X-Forwarded-For` by default, so without the first line a visitor sends
-their own and it lands leftmost — exactly the value the rate limiter reads. The
-second deletes a header Caddy has no reason to set, so a visitor cannot supply
-it and have the app trust it.
+Both `header_up` lines are still worth having, but neither is load-bearing any
+more. `reverse_proxy` *appends* to any inbound `X-Forwarded-For` by default, so
+without the first line a visitor's own value lands leftmost — which is why the
+app reads the header **from the right**. Each proxy appends the peer it saw, so
+the last entry is the one Caddy wrote and everything before it is whatever the
+sender chose to claim. `POSPRINTWEB_PROXY_HOPS` says how many proxies of your
+own are in front (1 for Caddy alone; 2 if Cloudflare is in front of that), and
+the client is that many entries from the end. A header shorter than the chain
+claims falls back to the socket peer.
+
+**On IP spoofing generally.** Over TCP, the socket peer cannot be forged: a
+handshake cannot be completed without receiving the SYN-ACK, which goes to the
+real owner of the address. So the only lie available is the *header*, and
+reading it from the right is the whole defence. A challenge-response step —
+fetch a key bound to your address, then spend it — adds nothing on top, because
+the key travels back over the sender's own connection whatever address they
+claim; TCP has already performed that round trip.
 
 Once something is in front, set `POSPRINTWEB_TRUST_PROXY=true` and restart, so
 rate limiting keys on the real visitor address rather than seeing every request
