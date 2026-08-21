@@ -80,17 +80,22 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
   color: var(--paper); background: var(--ink); border-color: var(--ink);
 }
 
-/* margin-left:auto is what puts this at the far right: it takes up the slack
-   in the flex row, so the section links stay left however many there are. */
-.nav__link--source {
-  margin-left: auto; display: inline-flex; align-items: center; gap: .35rem;
+/* margin-left:auto on the first of the right-hand pair is what puts them at the
+   far right: it takes up the slack in the flex row, so the section links stay
+   left however many there are. */
+.nav__link--source { margin-left: auto; }
+.nav__link--source,
+.nav__link--support {
+  display: inline-flex; align-items: center; gap: .35rem;
   border-color: transparent;
 }
-.nav__link--source svg { display: block; }
-/* The label is the first thing worth losing on a narrow screen - the mark on
-   its own is unambiguous, and the link keeps its accessible title either way. */
+.nav__link--source svg,
+.nav__link--support svg { display: block; }
+/* The labels are the first thing worth losing on a narrow screen - the marks on
+   their own are unambiguous, and the links keep their accessible titles. */
 @media (max-width: 30rem) {
-  .nav__link--source span { display: none; }
+  .nav__link--source span,
+  .nav__link--support span { display: none; }
 }
 
 /* -- gallery ------------------------------------------------------------ */
