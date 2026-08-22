@@ -124,10 +124,10 @@ def test_status_reports_what_the_page_shows():
 
 # -- the volume trigger ---------------------------------------------------
 #
-# This exists because the repository is public. Refusals only appear when
-# someone overshoots a limit, so a reader who knows the thresholds can pace
-# exactly at the burst cap, never overshoot, and print all day without ever
-# tripping the refusal signal. Politeness should not be a bypass.
+# The signal a reader of the source cannot pace around. Refusals only appear
+# when a sender overshoots a limit, and this repository is public - anyone can
+# read the thresholds and stay politely under them. Receipts are the thing
+# being objected to, so counting receipts is what cannot be tiptoed past.
 
 
 def test_a_paced_sender_who_never_overshoots_is_still_caught():

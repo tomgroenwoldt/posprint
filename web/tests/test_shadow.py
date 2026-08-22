@@ -111,7 +111,7 @@ def test_shadowed_messages_still_block_repeats(store):
         store.reserve("9.9.9.9", "", "slur", now=1001.0, repeat_hours=24, **QUOTAS)
 
 
-# -- burst cap ------------------------------------------------------------
+# -- global limits --------------------------------------------------------
 
 
 def test_global_hourly_cap_survives_ip_rotation(store):

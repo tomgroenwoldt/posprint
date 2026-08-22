@@ -133,8 +133,6 @@ class Store:
         per_ip_daily: int,
         global_daily: int,
         global_hourly: int = 0,
-        global_burst: int = 0,
-        global_burst_seconds: int = 60,
         repeat_hours: int = 0,
         now: float | None = None,
     ) -> Reservation:
@@ -207,27 +205,11 @@ class Store:
                             retry_after=wait,
                         )
 
-                # The short window, and the only limit that answers a flood
-                # from a rented proxy pool: rotating addresses defeats every
-                # check above, and random text defeats the fingerprint.
-                #
-                # Checked before the hourly one so a burst is reported with the
-                # shorter, truthful wait rather than the longer one.
-                if global_burst > 0:
-                    window = self._window(cur, now, global_burst_seconds)
-                    if window["n"] >= global_burst:
-                        raise QuotaExceeded(
-                            "The printer is keeping up with a rush. "
-                            "Try again in a moment.",
-                            retry_after=self._until_free(
-                                now, window, global_burst_seconds),
-                        )
-
                 if global_hourly > 0:
                     window = self._window(cur, now, 3600)
                     if window["n"] >= global_hourly:
-                        # Blunts a burst without ending the day for everyone,
-                        # which the daily cap alone would do.
+                        # Blunts a run of prints without ending the day for
+                        # everyone, which the daily cap alone would do.
                         raise QuotaExceeded(
                             "The printer is busy right now. Try again later.",
                             retry_after=self._until_free(now, window, 3600),

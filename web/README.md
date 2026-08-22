@@ -47,7 +47,7 @@ removing any one of them leaves a hole worth caring about.
 | A picture costing far more roll than a message | Braille art prints as a bitmap (see below), so it gets its own limits — a grid and a height in dots, not a character count. `POSPRINTWEB_BRAILLE_MAX_DOTS` caps the paper one picture may spend; `POSPRINTWEB_BRAILLE=false` disables the feature outright. |
 | Printer chattering at 03:00 | Quiet hours, local to your timezone, wrapping midnight correctly. |
 | Rate limits bypassed by forging `X-Forwarded-For` | Ignored unless `POSPRINTWEB_TRUST_PROXY=true`, which you set **only** once a trusted proxy is actually in front. |
-| Every per-IP limit bypassed by *changing IP* | Three controls that never look at the address: the same content is refused for `REPEAT_HOURS` however it is re-spaced or re-cased, and `GLOBAL_BURST` and `GLOBAL_HOURLY` cap the rate across everyone. An attacker's address is not a scarce resource; your paper is. |
+| Every per-IP limit bypassed by *changing IP* | Controls that never look at the address: the same content is refused for `REPEAT_HOURS` however it is re-spaced or re-cased, and `GLOBAL_HOURLY` and `HOLD_VOLUME` cap the rate across everyone. An attacker's address is not a scarce resource; your paper is. |
 | Someone iterating to find which slurs get through | The quiet filter, below. A match is accepted, charged, logged and never printed — so there is no feedback to iterate against. |
 | It all goes wrong at once | `touch /etc/posprintweb.disabled` stops printing immediately, no restart. |
 | Abuse you need to trace afterwards | Every attempt is logged to SQLite with timestamp, IP and body, readable at `GET /admin/log`. |
@@ -319,27 +319,26 @@ address at will. Two controls don't look at the address at all:
 | --- | --- |
 | `REPEAT_HOURS` (24) | Refuses content already printed in that window, matched on a folded fingerprint — case, accents and all whitespace removed. Re-indenting or re-casing the same drawing does not get a second print. |
 | `GLOBAL_HOURLY` (30) | Caps prints per hour across everyone. Blunts a flood without ending the day the way the daily budget would. |
-| `GLOBAL_BURST` (8 per 60s) | Caps prints per *minute* across everyone. The only one of these that answers a flood from a rented proxy pool. |
 
-`GLOBAL_BURST` exists because of a real run: 50 prints in 19 seconds — 2.6 a
-second — each from a different address, each with 500 characters of random
-text. Nothing else caught it. The addresses were all different, so the cooldown
+These exist because of a real run: 50 prints in 19 seconds — 2.6 a second —
+each from a different address, each with 500 characters of random text. Nothing
+keyed on the sender caught it. The addresses were all different, so the cooldown
 and the per-IP daily never fired; the messages were all different, so the
 fingerprint never fired; there were no words, so the shadow list never fired.
 The addresses were real, too — none of them in unroutable space, a quarter of
 them in mobile-carrier ranges — so this was a rented pool, not a forged header,
 and no amount of per-IP accounting would have helped.
 
-A minute is the shortest useful window. It is fatal to a flood, invisible to a
-person (the per-IP cooldown is 60s, so nobody reaches it alone), and
-self-healing: the window slides one slot at a time, and `Retry-After` carries
-the real number of seconds until the next one opens. That last part is the
-difference from `GLOBAL_HOURLY`, which used to answer a flat ten minutes
-however close the window was to opening — which is what made it feel like a
-punishment rather than a queue. Both now report the truth.
+There was briefly a per-minute cap here as well. It bounded the paper, but the
+message it produced — "the printer is keeping up with a rush" — landed on
+ordinary visitors far more often than on an attacker, who simply retried. Siege
+mode covers the same ground without charging everyone for it, so the per-minute
+cap is gone rather than merely switched off.
 
-Blocked attempts never reach the insert, so hammering does not push the window
-out: a flood cannot extend its own block.
+`Retry-After` carries the real number of seconds until a slot opens, rather
+than a flat guess, which is what made `GLOBAL_HOURLY` feel like a punishment
+rather than a queue. Blocked attempts never reach the insert, so hammering does
+not push the window out: a flood cannot extend its own block.
 
 ### Running this where the attacker can read it
 
@@ -361,10 +360,10 @@ it. Three specifics:
   real terms in it — keep the real list outside the repository and point
   `POSPRINTWEB_SHADOWLIST` there.
 - **The thresholds.** Refusals only happen when someone overshoots a limit, so
-  a reader who knows `HOLD_THRESHOLD` can pace exactly at the burst cap and
-  never trip it. `HOLD_VOLUME` closes that specific hole, but the general rule
-  stands: change the numbers in `/etc/posprintweb.env` so they are not the
-  published defaults.
+  a reader who knows `HOLD_THRESHOLD` can stay politely under it and never trip
+  it. `HOLD_VOLUME` closes that hole by counting receipts instead, but the
+  general rule stands: change the numbers in `/etc/posprintweb.env` so they are
+  not the published defaults.
 - **The captcha.** Its honest advantage was that no solver existed for it. With
   `captcha.py` public, writing one is an afternoon rather than a research
   project — the file says which four shapes, which six colours, and that
@@ -382,10 +381,9 @@ on secrecy to work.
 
 ### Siege mode
 
-Everything above is a **price**. The burst cap prices paper, proof of work
-prices a request, the quotas price an address. A determined sender pays them
-all and keeps going — which is what happened: the flood came back, paid, hit
-the per-minute cap and settled in to occupy every slot it allowed.
+Everything above is a **price**. Proof of work prices a request, the quotas
+price an address, the daily budget prices paper. A determined sender pays them
+all and keeps going — which is what happened, twice.
 
 Prices bound damage. They do not stop it. So while the printer is under attack,
 messages **queue for your approval instead of printing**. Nothing reaches paper
@@ -405,11 +403,6 @@ busy night alone.
 | `HOLD_WINDOW_SECONDS` | 300 | How far back refusals are counted |
 | `HOLD_FOR_SECONDS` | 1800 | How long it lasts, refreshed by further refusals |
 | `HOLD_MAX_QUEUE` | 200 | Ceiling on held messages; past it, new ones are refused |
-
-Note what the burst cap turns into during a siege. Refusals happen before the
-hold does, so the cap stops admitting messages to *paper* and starts admitting
-them to the *queue* — at the same eight a minute, with the queue ceiling behind
-it. Either way the receipt count is zero.
 
 Held messages appear under **Held** on `/admin`, oldest first, because this is
 a queue to work through rather than a feed to browse. Each has *Print it* and
@@ -431,9 +424,8 @@ the message goes back in the queue rather than being lost.
 
 ### Proof of work
 
-`GLOBAL_BURST` bounds the paper. It does not stop a flood *occupying* those
-slots while a person waits, and nothing keyed on the sender can, because the
-sender is renting their identity.
+Nothing keyed on the sender bounds a flood, because the sender is renting their
+identity. What is not rentable is CPU time.
 
 So every print must arrive with a solved puzzle. The server names a challenge;
 the page searches for a counter whose SHA-256 starts with `POW_BITS` zero bits;
@@ -666,8 +658,6 @@ All settings are environment variables, read once at startup from
 | `POSPRINTWEB_SHADOW_DELAY_MS` | `900` | Makes a swallowed message take as long as a real print |
 | `POSPRINTWEB_REPEAT_HOURS` | `24` | Refuse content already printed in this window, whatever the sender's IP. `0` disables |
 | `POSPRINTWEB_GLOBAL_HOURLY` | `30` | Hourly cap across everyone. `0` disables |
-| `POSPRINTWEB_GLOBAL_BURST` | `8` | Per-minute cap across everyone — the one that stops a proxy-pool flood. `0` disables |
-| `POSPRINTWEB_GLOBAL_BURST_SECONDS` | `60` | The burst window |
 | `POSPRINTWEB_HOLD_THRESHOLD` | `20` | Refusals in the window that trigger siege mode. `0` disables |
 | `POSPRINTWEB_HOLD_WINDOW_SECONDS` | `300` | How far back refusals are counted |
 | `POSPRINTWEB_HOLD_FOR_SECONDS` | `1800` | How long a siege lasts, refreshed while it continues |

@@ -167,8 +167,8 @@ class Config:
     # Refuses a message whose content has already been printed within this
     # many hours, however it has been re-spaced or re-cased. 0 disables.
     repeat_hours: int = 24
-    # A burst cap that does not end the day for everyone the way the daily
-    # budget would. 0 disables.
+    # Blunts a run of prints without ending the day for everyone the way the
+    # daily budget would. 0 disables.
     global_hourly: int = 30
 
     # The short-window cap, and the only limit that meaningfully answers a
@@ -183,13 +183,11 @@ class Config:
     # under a minute and is reported exactly in Retry-After. That is the
     # difference from global_hourly, whose flat ten-minute answer was what made
     # it feel like a punishment. 0 disables.
-    global_burst: int = 8
-    global_burst_seconds: int = 60
 
     # Proof of work: a cost per print, paid in CPU, that nothing rentable
-    # substitutes for. The flood that prompted the burst cap never loaded the
-    # page at all - it posted straight to /api/print, which is why a button or
-    # a checkbox would have changed nothing.
+    # substitutes for. The flood never loaded the page at all - it posted
+    # straight to /api/print, which is why a button or a checkbox would have
+    # changed nothing.
     #
     # Difficulty is in leading zero bits, so each bit doubles the work. 18 is
     # about 260k hashes: under a second in a browser, once per print, against a
@@ -205,9 +203,9 @@ class Config:
     # cost still cannot make the printer print.
     #
     # The trigger is *rejections*, not prints. A flood generates hundreds of
-    # refusals a minute bouncing off the burst cap; a room full of friends
-    # taking turns generates almost none, because they are not hammering. That
-    # difference is what keeps this switched off during ordinary busy periods.
+    # refusals a minute bouncing off whatever it cannot satisfy; a room full of
+    # friends taking turns generates almost none, because they are not
+    # hammering. That is what keeps this off during ordinary busy periods.
     #
     # 0 disables, and the printer goes back to printing whatever gets past the
     # quotas.
@@ -220,9 +218,9 @@ class Config:
     hold_max_queue: int = 200
     # The second trigger, and the one that exists because this repository is
     # public. Refusals only happen when someone overshoots; a reader who knows
-    # the thresholds can pace exactly at the burst cap, never overshoot, and
-    # print all day without ever tripping it. Volume catches that. Nobody sends
-    # sixty messages an hour to a stranger's printer, however politely spaced.
+    # the thresholds can stay politely under them and print all day without
+    # ever tripping it. Counting receipts catches that: nobody sends sixty
+    # messages an hour to a stranger's printer, however politely spaced.
     hold_volume: int = 60
     hold_volume_seconds: int = 3600
 
@@ -343,9 +341,6 @@ class Config:
             hold_max_queue=_env_int("POSPRINTWEB_HOLD_MAX_QUEUE", 200),
             pow_bits=_env_int("POSPRINTWEB_POW_BITS", 18),
             pow_ttl_seconds=_env_int("POSPRINTWEB_POW_TTL_SECONDS", 300),
-            global_burst=_env_int("POSPRINTWEB_GLOBAL_BURST", 8),
-            global_burst_seconds=_env_int(
-                "POSPRINTWEB_GLOBAL_BURST_SECONDS", 60),
             trust_proxy=_env_bool("POSPRINTWEB_TRUST_PROXY", False),
             proxy_hops=_env_int("POSPRINTWEB_PROXY_HOPS", 1),
             client_ip_header=os.environ.get(
