@@ -178,3 +178,25 @@ def test_an_unconfigured_relay_is_not_running():
     assert relay.configured is False
     assert relay.status()["running"] is False
     assert relay.upstream_live is None
+
+
+def test_an_unreachable_upstream_is_503_not_an_empty_200():
+    """A dead tunnel must not look like a working camera.
+
+    upstream_live stays None when the pull fails to connect - as opposed to
+    False, which means the container answered and said the feed is off - so
+    nothing refused the request and the endpoint streamed nothing with a 200.
+    During an outage that read as "the camera is fine, the site is broken",
+    which sent the search in the wrong direction.
+    """
+    from fastapi.testclient import TestClient
+
+    from posprintweb import relay
+
+    relay.camera = RelayCamera("http://127.0.0.1:9/api/camera.mjpg")  # discard port
+    with TestClient(relay.app) as client:
+        assert client.get("/api/camera.mjpg").status_code == 503
+        assert client.get("/api/camera.jpg").status_code == 503
+        health = client.get("/healthz").json()["camera"]
+    assert health["upstream_live"] is None
+    assert health["last_error"]

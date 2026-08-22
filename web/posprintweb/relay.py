@@ -78,8 +78,16 @@ async def stream() -> StreamingResponse:
     # with an empty body - the pull has not reported back yet - and only learns
     # the feed is off on their next attempt. This costs nothing: a viewer waits
     # for the first frame either way.
-    await camera.frame()
+    picture = await camera.frame()
     _available()
+    if picture is None:
+        # Reached when the container cannot be reached at all, as opposed to
+        # answering that the feed is off. Saying 200 here and streaming nothing
+        # made a dead tunnel look like a working camera, which cost real time
+        # during an outage: the site was 502 while this endpoint said 200.
+        log.warning("relay cannot reach the upstream: %s", camera.last_error)
+        raise HTTPException(
+            status_code=503, detail="the camera is not available")
 
     async def frames():
         async for frame in camera.stream():
