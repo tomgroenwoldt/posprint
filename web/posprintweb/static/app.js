@@ -481,6 +481,17 @@ function startCooldown(seconds) {
   cooldownTimer = setInterval(tick, 1000);
 }
 
+// A per-address daily cap of 0 means *no cap*, which the arithmetic behind
+// remaining_today cannot express: it reports max(0, limit - used), so a
+// disabled limit and an exhausted one are both 0. Reading that number alone
+// put "No prints left today." on a page where everything was permitted.
+function quotaText(remaining) {
+  if (!limits.per_ip_daily) return "";
+  return remaining > 0
+    ? `${remaining} of ${limits.per_ip_daily} prints left today.`
+    : "No prints left today.";
+}
+
 async function refreshStatus() {
   try {
     const r = await fetch("/api/status");
@@ -526,9 +537,7 @@ async function refreshStatus() {
     }
     syncSubmit();
 
-    el.quota.textContent = s.you.remaining_today > 0
-      ? `${s.you.remaining_today} of ${limits.per_ip_daily} prints left today.`
-      : "No prints left today.";
+    el.quota.textContent = quotaText(s.you.remaining_today);
     el.counterLine.textContent = `${s.printed_today} messages printed today.`;
 
     updateCount();
@@ -708,7 +717,7 @@ el.form.addEventListener("submit", async (ev) => {
       updateCount();
       renderPreview();
       startCooldown(body.next_allowed_in || limits.cooldown_seconds);
-      el.quota.textContent = `${body.remaining_today} prints left today.`;
+      el.quota.textContent = quotaText(body.remaining_today);
     } else {
       showError(body.detail || `Something went wrong (${r.status}).`);
       const retry = parseInt(r.headers.get("Retry-After") || "0", 10);
