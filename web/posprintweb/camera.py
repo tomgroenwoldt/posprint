@@ -182,20 +182,25 @@ class FrameHub:
         self._waiters.clear()
 
     async def _ensure_running(self) -> None:
-        if self._running():
+        # Warm and running: the overwhelming majority of calls, and stream()
+        # makes one per frame, so this stays a couple of attribute reads.
+        if self._frame is not None and self._running():
             return
-        if time.monotonic() - self._failed_at < self._retry_after:
-            return                          # still cooling off from a failure
-        async with self._lock:
-            if self._running():
-                return
-            await self._teardown()
-            await self._start()
-            if self._running():
-                self._idler = asyncio.create_task(self._idle_watch())
 
-        # First viewer waits for a frame rather than getting a 503 that would
-        # make a working camera look broken.
+        if not self._running():
+            if time.monotonic() - self._failed_at < self._retry_after:
+                return                      # still cooling off from a failure
+            async with self._lock:
+                if not self._running():
+                    await self._teardown()
+                    await self._start()
+                    if self._running():
+                        self._idler = asyncio.create_task(self._idle_watch())
+
+        # Wait for the first frame - whoever started the producer. Returning
+        # early just because someone else got there first is what made a group
+        # arriving together after an idle period see 503s: one request started
+        # the capture and the other nine were handed a None while it warmed up.
         deadline = time.monotonic() + self._start_timeout
         while self._frame is None and time.monotonic() < deadline:
             if not self._running():
