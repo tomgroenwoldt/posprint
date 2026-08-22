@@ -1,29 +1,28 @@
 """Siege detection: noticing that the printer is under attack rather than busy.
 
-Everything else here is a price. Proof of work prices a request, the quotas
-price an address, the daily budget prices paper. A determined sender pays all
-of them and keeps going - which is what happened, twice.
+Everything else here is a price. The burst cap prices paper, proof of work
+prices a request, the quotas price an address. A determined sender pays all of
+them and keeps going - which is what happened: the flood came back, hit the
+per-minute cap, and settled in to occupy every slot it allowed.
 
 Prices bound the damage. They do not stop it. So this watches for the shape of
 an attack and, while it sees one, takes the printer out of the sender's reach
 entirely: messages queue for approval instead of printing. That is a guarantee
 rather than a cost, and it is the only thing in the codebase that is.
 
-**Volume is the main signal.** Nobody sends sixty messages an hour to a printer
-in a stranger's flat, hour after hour, however politely they space them out.
-Somebody who does is not sending messages, and counting them needs no guess
-about intent.
+**The first signal is refusals, not prints.** A flood bounces off the burst cap
+hundreds of times a minute, because it keeps trying. Friends taking turns at a
+party generate prints and almost no refusals, because people wait. Counting
+prints alone would put a busy evening and an attack in the same bucket;
+refusals separate them cleanly and err toward leaving a busy night alone.
 
-**Refusals are the second signal, and the faster one.** Something bouncing off
-a limit over and over - a proof of work it cannot solve, a cooldown it will not
-wait for - is not a person who has misjudged the rules. It reports itself
-within seconds, well before enough paper has moved to trip the volume count.
-
-Volume matters more than it looks, because it is the one a reader of this file
-cannot pace around. Refusals only appear when a sender overshoots a limit, and
-this repository is public: anyone can read the thresholds and stay under them.
-Receipts are the thing being objected to, so counting receipts is the check
-that cannot be tiptoed past.
+**The second signal is volume, and it exists because this repository is
+public.** Refusals only appear when someone overshoots a limit. A reader of
+this file knows the thresholds, and the obvious response is to pace exactly at
+the burst cap and never overshoot: no refusals, no siege, and a receipt every
+seven seconds forever. So sustained volume triggers it too. Nobody sends sixty
+messages an hour to a printer in a stranger's flat for an hour on end, however
+politely they space them out.
 
 Publishing the mechanism is fine. Publishing the *numbers* is not, which is why
 they are configuration and not constants - the defaults in this file are a

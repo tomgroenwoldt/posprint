@@ -13,8 +13,8 @@ residential proxy pool is exactly the judgement being laundered. This proof is
 their way around - they can only pay for it, per print, forever.
 
 What it is not: a wall. Someone with real hardware can still push through, just
-not for free and not at 2.6 a second. Combined with siege mode, the point is
-that a flood can no longer run for nothing while a person waits.
+not for free and not at 2.6 a second. Combined with the burst cap, the point is
+that a flood can no longer occupy every slot for nothing while a person waits.
 
 Challenges are stateless apart from the spent-nonce set: an HMAC over the nonce
 and the issue time means nothing has to be stored to know we issued it, and

@@ -28,6 +28,7 @@ os.environ.update(
     # test_shadow.py, and through the API by the tests that switch them on.
     POSPRINTWEB_REPEAT_HOURS="0",
     POSPRINTWEB_GLOBAL_HOURLY="0",
+    POSPRINTWEB_GLOBAL_BURST="0",
     # Off here so every other test is not a proof-of-work benchmark. The check
     # itself is covered in test_challenge.py and switched on deliberately below.
     POSPRINTWEB_POW_BITS="0",
@@ -757,6 +758,34 @@ def test_the_camera_feed_is_read_rather_than_pointed_at():
     assert "feed ended" in js
 
 
+def test_the_burst_cap_holds_across_addresses(monkeypatch):
+    """The API-level check: a flood from many addresses is still capped.
+
+    TRUST_PROXY is on in this harness, so each request presents its own
+    X-Forwarded-For - which is exactly the attacker's position when they have
+    a pool of real addresses to rotate through, and the position in which every
+    other limit here is worthless.
+    """
+    from dataclasses import replace
+
+    monkeypatch.setattr(appmod, "cfg", replace(
+        appmod.cfg, global_burst=3, global_burst_seconds=60))
+    monkeypatch.setattr(appmod, "store", Store(":memory:", appmod.TZ))
+
+    with TestClient(appmod.app) as client:
+        codes = [
+            send(client, message=f"flood {i}", ip=f"172.59.{i}.{i}").status_code
+            for i in range(8)
+        ]
+        assert codes[:3] == [200, 200, 200]
+        assert set(codes[3:]) == {429}
+
+        # And it says when, rather than "later".
+        blocked = send(client, message="one more", ip="203.0.113.7")
+        assert blocked.status_code == 429
+        assert 0 < int(blocked.headers["Retry-After"]) <= 60
+
+
 def _solve(challenge, bits):
     from posprintweb.challenge import solved
     counter = 0
@@ -832,14 +861,13 @@ def _under_siege(monkeypatch, **overrides):
 
     from posprintweb.siege import Siege
 
-    settings = dict(hold_threshold=2, hold_volume=3, cooldown_seconds=0,
-                    per_ip_daily=0)
+    settings = dict(global_burst=2, global_burst_seconds=60,
+                    hold_threshold=2, cooldown_seconds=0, per_ip_daily=0)
     settings.update(overrides)
     monkeypatch.setattr(appmod, "cfg", replace(appmod.cfg, **settings))
     monkeypatch.setattr(appmod, "siege", Siege(
         threshold=settings["hold_threshold"], window_seconds=300.0,
-        hold_for_seconds=1800.0, volume=settings["hold_volume"],
-        volume_seconds=3600.0))
+        hold_for_seconds=1800.0))
     monkeypatch.setattr(appmod, "store", Store(":memory:", appmod.TZ))
 
 
@@ -847,30 +875,32 @@ def test_a_flood_ends_up_printing_nothing(monkeypatch):
     """The whole point. Every other control prices abuse and hopes the price is
     enough; this one removes the outcome.
 
-    With no per-minute cap in the way, a flood is caught by volume: prints land
-    at full speed until the count in the window says this is not somebody
-    sending a message, and from then on nothing reaches paper.
+    Note what the burst cap turns into here. Refusals arrive before the hold
+    does, so while a siege is on, the cap stops admitting messages to *paper*
+    and starts admitting them to the *queue* - at the same 8 a minute, with the
+    queue ceiling behind it. Either way the number of receipts is zero.
     """
     _under_siege(monkeypatch)
 
     with TestClient(appmod.app) as client:
-        printed = held = 0
+        printed = refused = 0
         for i in range(40):                      # the flood, addresses and all
             r = send(client, message=f"flood {i}", ip=f"172.59.{i}.{i}")
             if r.status_code == 200:
                 printed += 1
-            elif r.status_code == 202:
-                held += 1
+            elif r.status_code != 202:
+                refused += 1
 
-        # Three land before the volume trigger fires; nothing after.
-        assert printed == 3
-        assert held == 37
+        assert refused > 0                       # the burst cap, doing its job
+        # Two got through before the siege triggered, and nothing after: the
+        # printer is no longer something the sender can reach.
+        assert printed == 2
         assert appmod.siege.active() is True
 
 
 def test_messages_are_held_rather_than_printed_during_a_siege(monkeypatch):
     """With the paper cap out of the way, so this is about the hold itself."""
-    _under_siege(monkeypatch)
+    _under_siege(monkeypatch, global_burst=0)
     appmod.siege.refused()
     appmod.siege.refused()
     assert appmod.siege.active() is True
@@ -905,7 +935,7 @@ def test_a_held_message_tells_the_sender_the_truth(monkeypatch):
 
 
 def test_the_owner_can_release_or_discard(monkeypatch):
-    _under_siege(monkeypatch)
+    _under_siege(monkeypatch, global_burst=0)
     appmod.siege.refused()
     appmod.siege.refused()
     key = {"X-Admin-Key": "admin-secret"}
@@ -955,7 +985,7 @@ def test_the_siege_can_be_lifted_by_hand(monkeypatch):
 
 def test_the_hold_queue_has_a_ceiling(monkeypatch):
     """A long siege must not be a way to grow the database without bound."""
-    _under_siege(monkeypatch, hold_max_queue=3)
+    _under_siege(monkeypatch, hold_max_queue=3, global_burst=0)
 
     with TestClient(appmod.app) as client:
         appmod.siege.refused(); appmod.siege.refused()
@@ -987,7 +1017,7 @@ def test_solving_the_puzzle_prints_instead_of_queueing(monkeypatch):
     """The fast lane. A siege otherwise makes everyone wait for the owner."""
     from posprintweb.captcha import _sign
 
-    _under_siege(monkeypatch)
+    _under_siege(monkeypatch, global_burst=0)
     appmod.siege.refused()
     appmod.siege.refused()
 

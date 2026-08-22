@@ -475,6 +475,8 @@ async def print_message(
                 per_ip_daily=cfg.per_ip_daily,
                 global_daily=cfg.global_daily,
                 global_hourly=cfg.global_hourly,
+                global_burst=cfg.global_burst,
+                global_burst_seconds=cfg.global_burst_seconds,
                 repeat_hours=cfg.repeat_hours,
             )
         except QuotaExceeded as exc:
