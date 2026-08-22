@@ -354,30 +354,34 @@ function attachCamera() {
 
 function cameraFailed(err) {
   const reason = String(err && err.message);
-  if (reason === "off") {
-    // Switched off rather than broken. Refreshing the status hides the whole
-    // section, which is the honest thing to show, and stops the backoff
-    // complaining about a camera nobody is being denied.
-    detachCamera();
-    refreshStatus();
-    return;
-  }
-
   el.cameraFrame.hidden = true;
   el.cameraNote.textContent =
     reason === "busy"
       ? "Too many people are watching right now."
+      : reason === "off"
+      ? "The camera is switched off right now."
       : cameraFailures
       ? "Still can't reach the camera."
       : "The camera is unreachable right now.";
 
-  // Back off rather than hammering a camera that is already not answering.
+  // Back off on every failure, including "switched off". Nothing here may
+  // reconnect without going through this timer.
   cameraFailures += 1;
   const delay = Math.min(30000, 2000 * 2 ** (cameraFailures - 1));
   cameraRetry = setTimeout(() => {
     cameraRetry = null;
     if (!el.camera.hidden) attachCamera();
   }, delay);
+
+  // Asked for *after* the timer is set, deliberately. refreshStatus calls
+  // updateCamera, which reconnects when nothing else owns the reconnect; with
+  // the timer already pending it defers instead.
+  //
+  // Getting this order wrong spun the page at full speed: /api/status is
+  // served by the container and the feed by the relay, so the two can disagree
+  // - status says live, feed says 404 - and the reconnect chased its own tail
+  // as fast as the network allowed.
+  if (reason === "off") refreshStatus();
 }
 
 function detachCamera() {
