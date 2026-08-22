@@ -186,6 +186,12 @@ fetch a key bound to your address, then spend it — adds nothing on top, becaus
 the key travels back over the sender's own connection whatever address they
 claim; TCP has already performed that round trip.
 
+`POSPRINTWEB_HOST` must be `0.0.0.0` when the proxy is on another machine, which
+it is in this setup. Left at `127.0.0.1` the service starts cleanly, listens on
+loopback, and every visitor gets a 502 from a Caddy that cannot dial it — a
+failure that reads like a broken tunnel and is not one. `ss -ltnp | grep 8000`
+on the container settles it in one line.
+
 Once something is in front, set `POSPRINTWEB_TRUST_PROXY=true` and restart, so
 rate limiting keys on the real visitor address rather than seeing every request
 as coming from the proxy.

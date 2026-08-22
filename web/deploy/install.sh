@@ -90,7 +90,17 @@ POSPRINTWEB_UPSTREAM=http://127.0.0.1:8080
 POSPRINTWEB_UPSTREAM_KEY=
 
 # --- this service ----------------------------------------------------------
-POSPRINTWEB_HOST=127.0.0.1
+# 0.0.0.0, because the documented setup puts Caddy on a *different* machine and
+# reaches this one over Tailscale or WireGuard. 127.0.0.1 is right only when
+# the proxy runs on this same host - otherwise the service starts perfectly,
+# listens on loopback, and every visitor gets a 502 from a reverse proxy that
+# cannot dial it. That failure looks like a network problem and is not one.
+#
+# Nothing is exposed by this that was not already: the container has no public
+# address, and a direct caller on the LAN gets the same rate limits as anyone
+# else - client_ip falls back to the socket peer when the forwarding header is
+# absent, which a direct caller cannot fake.
+POSPRINTWEB_HOST=0.0.0.0
 POSPRINTWEB_PORT=8000
 POSPRINTWEB_TITLE=Print to my receipt printer
 POSPRINTWEB_BLURB=This prints on a real thermal printer in my flat.
