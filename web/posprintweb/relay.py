@@ -59,10 +59,15 @@ async def _shutdown() -> None:
 def _available() -> None:
     if not camera.configured:
         raise HTTPException(status_code=404, detail="not found")
-    # The container said the feed is switched off. 404 rather than 503: whether
-    # a camera exists at all is not something a closed feed should confirm, and
-    # that judgement belongs upstream, not here.
-    if camera.upstream_live is False:
+    # The container said the feed is switched off, recently enough to act on.
+    # 404 rather than 503: whether a camera exists at all is not something a
+    # closed feed should confirm, and that judgement belongs upstream.
+    #
+    # believed_off expires, and must. This gate runs before anything that could
+    # re-ask, so a permanent answer would mean a feed switched back on - the
+    # killswitch lifted, quiet hours ending - stayed dark until the relay was
+    # restarted by hand.
+    if camera.believed_off:
         raise HTTPException(status_code=404, detail="not found")
 
 

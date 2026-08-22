@@ -487,6 +487,12 @@ class RelayCamera(FrameHub):
         # switched off, which is a different thing from being unable to reach
         # it, and is not worth retrying hard.
         self.upstream_live: bool | None = None
+        self._asked_at: float = 0.0
+        # How long a "switched off" answer is believed before asking again.
+        # Without this the answer is permanent: the relay refuses every request
+        # before it would reach the code that could learn otherwise, so a feed
+        # switched back on stays dark until someone restarts the relay.
+        self._recheck_after: float = 15.0
 
     @property
     def configured(self) -> bool:
@@ -518,11 +524,11 @@ class RelayCamera(FrameHub):
                         # Not an error: the upstream's own gates say the feed is
                         # off. Says so plainly so the relay does not report a
                         # switched-off camera as a broken one.
-                        self.upstream_live = False
+                        self._note_live(False)
                         self.last_error = "the upstream feed is switched off"
                         return
                     if response.status_code != 200:
-                        self.upstream_live = False
+                        self._note_live(False)
                         self.last_error = f"upstream returned {response.status_code}"
                         return
 
@@ -531,7 +537,7 @@ class RelayCamera(FrameHub):
                         self.last_error = "upstream sent no multipart boundary"
                         return
 
-                    self.upstream_live = True
+                    self._note_live(True)
                     buf = bytearray()
                     async for chunk in response.aiter_bytes():
                         buf += chunk
@@ -549,8 +555,24 @@ class RelayCamera(FrameHub):
             self.last_error = f"{type(exc).__name__}: {exc}"[:300]
             log.warning("relay read failed: %s", self.last_error)
 
+    def _note_live(self, live: bool) -> None:
+        self.upstream_live = live
+        self._asked_at = time.monotonic()
+
+    @property
+    def believed_off(self) -> bool:
+        """The upstream said no, recently enough to still act on it.
+
+        Deliberately expires. The gate that reads this refuses the request
+        before anything would re-ask, so a permanent answer means a feed
+        switched back on never gets noticed.
+        """
+        return (self.upstream_live is False
+                and time.monotonic() - self._asked_at < self._recheck_after)
+
     def status(self) -> dict:
         return {**super().status(), "upstream_live": self.upstream_live,
+                "believed_off": self.believed_off,
                 "upstream": _redacted(self._url)}
 
 

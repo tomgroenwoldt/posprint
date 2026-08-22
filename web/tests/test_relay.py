@@ -200,3 +200,26 @@ def test_an_unreachable_upstream_is_503_not_an_empty_200():
         health = client.get("/healthz").json()["camera"]
     assert health["upstream_live"] is None
     assert health["last_error"]
+
+
+def test_a_switched_off_feed_is_re_checked_rather_than_latched():
+    """A "switched off" answer has to expire.
+
+    The gate that reads it refuses the request before anything would re-ask, so
+    a permanent answer means a feed switched back on - the killswitch lifted,
+    quiet hours ending - stays dark until someone restarts the relay by hand.
+    Which is exactly what happened: the printing killswitch also closes the
+    camera, and lifting it left the relay serving 404s to a live feed.
+    """
+    relay = RelayCamera("http://127.0.0.1:9/api/camera.mjpg")
+    assert relay.believed_off is False           # never asked, so not refusing
+
+    relay._note_live(False)
+    assert relay.believed_off is True            # asked just now, believe it
+
+    relay._asked_at -= relay._recheck_after + 1  # ...and later
+    assert relay.believed_off is False           # ask again rather than assume
+    assert relay.upstream_live is False          # the last answer is still on record
+
+    relay._note_live(True)
+    assert relay.believed_off is False
