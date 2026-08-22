@@ -290,6 +290,10 @@ function showFrame(bytes) {
 async function readCamera(signal, onFrame) {
   const res = await fetch("/api/camera.mjpg", { signal, cache: "no-store" });
   if (res.status === 503) throw new Error("busy");
+  // 404 is not a failure: it is the killswitch, quiet hours, or after_print
+  // closing the window. /api/status is the authority on that, so ask it now
+  // rather than complaining for up to a minute until the next poll.
+  if (res.status === 404) throw new Error("off");
   if (!res.ok) throw new Error(`feed returned ${res.status}`);
 
   const boundary = /boundary=([^;]+)/i.exec(res.headers.get("Content-Type") || "");
@@ -345,9 +349,19 @@ function attachCamera() {
 }
 
 function cameraFailed(err) {
+  const reason = String(err && err.message);
+  if (reason === "off") {
+    // Switched off rather than broken. Refreshing the status hides the whole
+    // section, which is the honest thing to show, and stops the backoff
+    // complaining about a camera nobody is being denied.
+    detachCamera();
+    refreshStatus();
+    return;
+  }
+
   el.cameraFrame.hidden = true;
   el.cameraNote.textContent =
-    String(err && err.message) === "busy"
+    reason === "busy"
       ? "Too many people are watching right now."
       : cameraFailures
       ? "Still can't reach the camera."

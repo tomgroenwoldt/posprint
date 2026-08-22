@@ -636,7 +636,11 @@ async def camera_stream() -> StreamingResponse:
     boundary = "posprintframe"
 
     async def frames():
-        async for frame in camera.stream():
+        # camera_live is passed in rather than checked once above, so the
+        # killswitch and the after_print window cut viewers who are already
+        # watching. Checking only at the start meant touching the killswitch
+        # stopped new viewers and left everyone else looking at the flat.
+        async for frame in camera.stream(allowed=camera_live):
             yield (
                 f"--{boundary}\r\nContent-Type: image/jpeg\r\n"
                 f"Content-Length: {len(frame)}\r\n\r\n"
@@ -667,7 +671,17 @@ async def camera_frame() -> Response:
 
 @app.get("/admin/log", dependencies=[Depends(require_admin)], include_in_schema=False)
 async def admin_log(limit: int = 50) -> dict:
-    return {"prints": store.recent(limit)}
+    """Recent prints, plus what the camera is doing.
+
+    The viewer count is here because it is the one number that says whether the
+    relay is working. With a relay in front this should read 1 however many
+    people are watching the site; without one it climbs with the audience, and
+    every one of those is an MJPEG stream leaving the flat. Admin-only: how
+    many people are watching a camera in someone's home is not public.
+    """
+    return {"prints": store.recent(limit),
+            "camera": camera.status(),
+            "siege": siege.status()}
 
 
 # -- gallery --------------------------------------------------------------

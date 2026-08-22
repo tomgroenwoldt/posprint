@@ -132,11 +132,16 @@ if CAMERA:
         async def frame(self) -> bytes:
             return self._jpeg()
 
-        async def stream(self):
+        async def stream(self, max_wait=10.0, allowed=None):
+            # Same signature as FrameHub.stream, including the `allowed` gate
+            # the killswitch needs. Getting this wrong is silent in production
+            # and obvious here, which is the point of the fake.
             self.viewers += 1
             started = time.monotonic()
             try:
                 while True:
+                    if allowed is not None and not allowed():
+                        return
                     if self.drop_after and (
                             time.monotonic() - started) > self.drop_after:
                         print("  [fake camera] ending the stream, as a stalled "
@@ -150,8 +155,13 @@ if CAMERA:
         async def stop(self) -> None:
             pass
 
-        def health(self) -> dict:
-            return {"configured": True, "running": True, "viewers": self.viewers}
+        def status(self) -> dict:
+            # Matches FrameHub.status, not something similar-looking. The
+            # viewer count is the number the relay work is judged on, so it
+            # being wrong here would hide exactly what the fake is for.
+            return {"configured": True, "running": True,
+                    "viewers": self.viewers, "frame_age": 0.0,
+                    "last_error": None}
 
     appmod.camera = FakeCamera()
     print("  [fake camera] synthetic feed at /api/camera.mjpg")

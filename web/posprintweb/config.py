@@ -107,6 +107,24 @@ class Config:
     # cutting the picture should not have to mean cutting the printing.
     camera_killswitch: str = "/etc/posprintweb-camera.disabled"
 
+    # -- the camera relay --------------------------------------------------
+    # A second, much smaller deployment of this codebase that pulls the feed
+    # from the container once and fans it out. A reverse proxy opens a separate
+    # connection per viewer, so without this the flat's uplink carries one
+    # MJPEG stream per person watching; with it, one stream regardless.
+    #
+    # Only relay_upstream is read by `python -m posprintweb.relay`; the main
+    # service ignores all of these.
+    relay_upstream: str = ""
+    relay_host: str = "127.0.0.1"          # Caddy is the only client
+    relay_port: int = 8001
+    # The real cap now. The bottleneck moved from a domestic uplink to a VPS,
+    # which has an order of magnitude more of it.
+    relay_max_viewers: int = 24
+    # Longer than the container's own idle timeout, so a page reload does not
+    # make ffmpeg stop and start again at the other end.
+    relay_idle_timeout: int = 30
+
     # -- braille art ------------------------------------------------------
     # Braille characters are printed as a decoded bitmap rather than as text,
     # because the printer has no glyphs for them. That needs its own limits:
@@ -342,6 +360,11 @@ class Config:
             pow_bits=_env_int("POSPRINTWEB_POW_BITS", 18),
             pow_ttl_seconds=_env_int("POSPRINTWEB_POW_TTL_SECONDS", 300),
             trust_proxy=_env_bool("POSPRINTWEB_TRUST_PROXY", False),
+            relay_upstream=os.environ.get("POSPRINTWEB_RELAY_UPSTREAM", "").strip(),
+            relay_host=os.environ.get("POSPRINTWEB_RELAY_HOST", "127.0.0.1"),
+            relay_port=_env_int("POSPRINTWEB_RELAY_PORT", 8001),
+            relay_max_viewers=_env_int("POSPRINTWEB_RELAY_MAX_VIEWERS", 24),
+            relay_idle_timeout=_env_int("POSPRINTWEB_RELAY_IDLE_TIMEOUT", 30),
             proxy_hops=_env_int("POSPRINTWEB_PROXY_HOPS", 1),
             client_ip_header=os.environ.get(
                 "POSPRINTWEB_CLIENT_IP_HEADER", "x-forwarded-for"

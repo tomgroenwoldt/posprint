@@ -545,6 +545,53 @@ roughly 3 Mbit/s, and a domestic upload link runs out long before a Hetzner
 CAX11 does. Six viewers is about 18 Mbit/s leaving the flat. Lower
 `CAMERA_FPS`, `CAMERA_WIDTH` or `CAMERA_QUALITY` if that hurts.
 
+### Fanning it out from the VPS
+
+Caddy's `reverse_proxy` opens a **separate connection per viewer**, so every
+person watching used to pull their own MJPEG stream out of the flat. Ten
+viewers, ten decodes' worth of bytes leaving a domestic uplink. That, and not
+the VPS, is why `CAMERA_MAX_VIEWERS` was ever as low as six.
+
+The relay pulls the feed **once** and hands it to everyone:
+
+```
+camera ──► CT 111 (ffmpeg) ──► relay on the VPS ──┬──► viewer
+                                                  ├──► viewer
+          one connection out of the flat          └──► viewer
+```
+
+```bash
+./web/deploy/relay-install.sh     # on the VPS, from a checkout
+```
+
+Then point Caddy's two camera routes at `127.0.0.1:8001` and leave everything
+else — `/api/status` included — aimed at the container. `flush_interval -1` is
+required on the streaming route or Caddy buffers it into uselessness.
+
+**The container stays the authority on whether the feed may be shown.** It
+holds the RTSP credentials, `CAMERA_MODE` and the killswitch; the relay only
+ever sees the picture the site already publishes, and gets a 404 when the
+container says no. Bandwidth moves to the VPS; the privacy decision does not.
+
+Drop `POSPRINTWEB_CAMERA_MAX_VIEWERS` on the container to **2** afterwards —
+the relay is its only viewer, plus a slot so a reconnect can overlap a dying
+connection. `POSPRINTWEB_RELAY_MAX_VIEWERS` becomes the real cap.
+
+The number to check after deploying is not on the relay but upstream. With
+several people watching, the container should still report one viewer:
+
+```bash
+curl -s -H "X-Admin-Key: $KEY" http://<container>:8000/admin/log?limit=1
+```
+
+Measured on a laptop with eight viewers on the relay: the container reported
+**1** connection throughout, and every viewer received every frame.
+
+The relay reads the stream with the same care the browser does — a body that
+ends is a dead feed, a silent stall needs a timeout, and frames are taken by
+their declared `Content-Length` rather than by scanning for the next boundary,
+because a JPEG can contain anything including the boundary itself.
+
 ### Tapo TC70
 
 Enable **Advanced Settings → Camera Account** in the Tapo app first; that
@@ -637,6 +684,10 @@ All settings are environment variables, read once at startup from
 | `POSPRINTWEB_CAMERA_QUALITY` | `6` | ffmpeg `-q:v`; 2 best, 31 worst |
 | `POSPRINTWEB_CAMERA_MAX_VIEWERS` | `6` | Concurrent streams. Caps bandwidth leaving the flat |
 | `POSPRINTWEB_CAMERA_IDLE` | `15` | Seconds with no viewer before ffmpeg is stopped |
+| `POSPRINTWEB_RELAY_UPSTREAM` | *(empty)* | The container's feed, for the relay. Only read by `python -m posprintweb.relay` |
+| `POSPRINTWEB_RELAY_HOST` / `_PORT` | `127.0.0.1` / `8001` | Where the relay listens. Caddy should be its only client |
+| `POSPRINTWEB_RELAY_MAX_VIEWERS` | `24` | The real viewer cap once a relay is in front |
+| `POSPRINTWEB_RELAY_IDLE_TIMEOUT` | `30` | Longer than the container's, so a reload does not restart ffmpeg |
 | `POSPRINTWEB_CAMERA_KILLSWITCH` | `/etc/posprintweb-camera.disabled` | Cuts the picture without stopping printing |
 | `POSPRINTWEB_BRAILLE` | `true` | Accept braille art and print it as a decoded bitmap |
 | `POSPRINTWEB_BRAILLE_MAX_COLS` | `72` | Art width in cells. 72 cells = 144 dots, so scale 4 fills an 80mm head |
