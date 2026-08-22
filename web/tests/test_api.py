@@ -547,7 +547,7 @@ def test_only_the_configured_header_is_trusted(client):
     visitor could send the one the proxy does not overwrite and hand themselves
     a fresh quota every request. Only POSPRINTWEB_CLIENT_IP_HEADER counts.
     """
-    body = {"message": "hi", "name": ""}
+    body = {"message": "hi", "name": "tom"}
     first = client.post(
         "/api/print", json=body,
         headers={"X-Forwarded-For": "1.1.1.1", "CF-Connecting-IP": "8.8.8.8"},
@@ -778,7 +778,8 @@ def test_printing_needs_proof_of_work(monkeypatch):
 
     with TestClient(appmod.app) as client:
         # What curl does: no proof at all.
-        bare = client.post("/api/print", json={"message": "no work done"})
+        bare = client.post("/api/print",
+                           json={"message": "no work done", "name": "curl"})
         assert bare.status_code == 428
 
         # What the page does.
@@ -786,14 +787,16 @@ def test_printing_needs_proof_of_work(monkeypatch):
         assert issued["bits"] == 8
         counter = _solve(issued["challenge"], issued["bits"])
         ok = client.post("/api/print", json={
-            "message": "work done", "challenge": issued["challenge"],
+            "message": "work done", "name": "tom",
+            "challenge": issued["challenge"],
             "counter": counter,
         })
         assert ok.status_code == 200
 
         # And that proof is spent - replaying it is worth nothing.
         again = client.post("/api/print", json={
-            "message": "replayed", "challenge": issued["challenge"],
+            "message": "replayed", "name": "tom",
+            "challenge": issued["challenge"],
             "counter": counter,
         })
         assert again.status_code == 428
@@ -810,7 +813,7 @@ def test_the_admin_key_skips_the_proof(monkeypatch):
     monkeypatch.setattr(appmod, "store", Store(":memory:", appmod.TZ))
 
     with TestClient(appmod.app) as client:
-        r = client.post("/api/print", json={"message": "mine"},
+        r = client.post("/api/print", json={"message": "mine", "name": "tom"},
                         headers={"X-Admin-Key": "admin-secret"})
     assert r.status_code == 200
 
@@ -818,7 +821,9 @@ def test_the_admin_key_skips_the_proof(monkeypatch):
 def test_zero_bits_disables_the_check(monkeypatch):
     monkeypatch.setattr(appmod, "store", Store(":memory:", appmod.TZ))
     with TestClient(appmod.app) as client:      # harness runs with pow_bits=0
-        assert client.post("/api/print", json={"message": "no proof"}).status_code == 200
+        assert client.post(
+            "/api/print",
+            json={"message": "no proof", "name": "tom"}).status_code == 200
 
 
 def _under_siege(monkeypatch, **overrides):
@@ -973,7 +978,7 @@ def test_the_admin_still_prints_during_a_siege(monkeypatch):
             send(client, message=f"flood {i}", ip=f"10.0.0.{i}")
         assert appmod.siege.active() is True
 
-        r = client.post("/api/print", json={"message": "mine"},
+        r = client.post("/api/print", json={"message": "mine", "name": "tom"},
                         headers={"X-Admin-Key": "admin-secret"})
     assert r.status_code == 200
 
@@ -998,7 +1003,8 @@ def test_solving_the_puzzle_prints_instead_of_queueing(monkeypatch):
                       if _sign(nonce, int(at), a) == sig)
 
         solved = client.post("/api/print", json={
-            "message": "solved it", "captcha_token": issued["token"],
+            "message": "solved it", "name": "tom",
+            "captcha_token": issued["token"],
             "captcha_answer": answer,
         }, headers={"X-Forwarded-For": "10.4.0.2"})
         assert solved.status_code == 200            # printed, not queued
@@ -1010,7 +1016,8 @@ def test_solving_the_puzzle_prints_instead_of_queueing(monkeypatch):
         right = next(a for a in range(other["tiles"])
                      if _sign(nonce, int(at), a) == sig)
         wrong = client.post("/api/print", json={
-            "message": "guessed wrong", "captcha_token": other["token"],
+            "message": "guessed wrong", "name": "tom",
+            "captcha_token": other["token"],
             "captcha_answer": (right + 1) % other["tiles"],
         }, headers={"X-Forwarded-For": "10.4.0.3"})
         assert wrong.status_code == 202
@@ -1062,3 +1069,32 @@ def test_a_header_shorter_than_the_configured_chain_falls_back(monkeypatch):
     # With the full chain present, the client is two from the end.
     two = FakeRequest("203.0.113.99, 198.51.100.7, 10.9.9.9", "10.0.0.1")
     assert appmod.client_ip(two) == "198.51.100.7"
+
+
+def test_a_print_without_a_name_is_refused(client):
+    """The name goes on the receipt, so it is not optional any more.
+
+    Refused with a sentence rather than a schema error: the field is still
+    optional in the model precisely so check_name can answer in words a visitor
+    can act on.
+    """
+    for blank in ("", "   "):
+        r = client.post("/api/print", json={"message": "hello", "name": blank},
+                        headers={"X-Forwarded-For": "5.5.5.5"})
+        assert r.status_code == 422
+        assert "name" in r.json()["detail"].lower()
+
+    # And a name is all that was missing.
+    r = client.post("/api/print", json={"message": "hello", "name": "tom"},
+                    headers={"X-Forwarded-For": "5.5.5.6"})
+    assert r.status_code == 200
+
+
+def test_older_entries_without_a_name_still_render(client):
+    """A rule about what may be sent, not a rewrite of what already was. The
+    gallery holds prints from before the name was required."""
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[1]
+          / "posprintweb" / "static" / "receipt.js").read_text(encoding="utf-8")
+    assert "someone on the internet" in js

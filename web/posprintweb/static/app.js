@@ -39,6 +39,10 @@ let mixedArt = false;
 // far past max_chars, so it can no longer be the guardrail for ordinary text.
 // This is.
 let tooLong = false;
+// The name goes on the receipt, so it is not optional. Tracked alongside
+// the other reasons rather than checked at submit time, so the button is
+// already down rather than refusing after the fact.
+let noName = true;
 
 /* -- braille art --------------------------------------------------------- */
 
@@ -449,7 +453,8 @@ function syncSubmit() {
   // A cooldown owns the button's label as well as its state, so it is left to
   // startCooldown's ticker rather than being fought over here.
   if (cooldownUntil > Date.now()) return;
-  el.submit.disabled = printerBlocked || unprintable.length > 0 || mixedArt || tooLong;
+  el.submit.disabled = printerBlocked || unprintable.length > 0
+                       || mixedArt || tooLong || noName;
 }
 
 function startCooldown(seconds) {
@@ -720,7 +725,11 @@ el.message.addEventListener("input", () => {
   updateCount();
   renderPreview();
 });
-el.name.addEventListener("input", renderPreview);
+el.name.addEventListener("input", () => {
+  noName = !el.name.value.trim();
+  syncSubmit();
+  renderPreview();
+});
 
 refreshStatus();
 setInterval(refreshStatus, 60000);

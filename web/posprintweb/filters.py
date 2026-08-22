@@ -188,10 +188,16 @@ def check_name(
     blocklist: tuple[str, ...] = (),
     codepage: str = "cp858",
 ) -> str:
-    """Clean and validate the optional sender name. May return ''."""
+    """Clean and validate the sender name, which is required.
+
+    Required because every receipt carries a from-line, and "someone on the
+    internet" on all of them tells whoever picks up the paper nothing. Older
+    entries with no name still render with that fallback: this is a rule
+    about what may be sent, not a rewrite of what already was.
+    """
     text = clean(text).replace("\n", " ").strip()
     if not text:
-        return ""
+        raise Rejected("Put a name on it - it goes on the receipt.")
     if len(text) > max_chars:
         raise Rejected(f"Name is too long: the limit is {max_chars} characters.")
     _check_printable(text, codepage)

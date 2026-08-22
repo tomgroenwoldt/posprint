@@ -108,8 +108,12 @@ def test_name_is_flattened_to_one_line():
     assert check_name("Tom\nGroenwoldt", max_chars=32) == "Tom Groenwoldt"
 
 
-def test_empty_name_is_allowed():
-    assert check_name("   ", max_chars=32) == ""
+def test_a_name_is_required():
+    """It goes on the receipt, and "someone on the internet" on every slip
+    tells whoever picks up the paper nothing."""
+    for blank in ("", "   ", "\n\n", "\t "):
+        with pytest.raises(Rejected, match="Put a name on it"):
+            check_name(blank, max_chars=32)
 
 
 def test_long_name_is_rejected():

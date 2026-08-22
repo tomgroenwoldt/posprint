@@ -35,6 +35,9 @@ class PrintMessage(BaseModel):
     # multi-megabyte body from reaching the Unicode normaliser. The real limits
     # live in Config and are enforced in filters.py.
     message: str = Field(..., max_length=5000)
+    # Required, but not enforced by the schema: an empty one should come
+    # back as a sentence from check_name, not as a validation error about
+    # a field, which is what a visitor would actually see.
     name: str = Field("", max_length=200)
     # Proof of work. Optional on the model so a request without one reaches the
     # route and is refused there with something a page can act on, rather than
