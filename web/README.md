@@ -49,17 +49,35 @@ A full deployment is three hosts. Only the first two are required; the relay is
 a bandwidth optimisation you can add later.
 
 ```
-              ┌──────────────── your flat ────────────────┐
-              │                                           │
-  camera ─────┼──▶ CT 111  posprint-web ──(API key)──▶ CT 110  posprint ──▶ USB printer
-   (RTSP)     │      :8000                                :8080
-              │        │                                           │
-              └────────┼───────────────────────────────────────────┘
-                       │  Tailscale / WireGuard
-                       ▼
-                   VPS   Caddy :443  ──▶  the internet
-                         posprintweb-relay :8001   (camera fan-out)
+                      the internet
+                            │
+                            ▼
+ ┌─ VPS ────────────────────────────────────────┐
+ │ Caddy :443                                   │
+ │ posprintweb-relay :8001   (camera fan-out)   │
+ └──────────────────────────┬───────────────────┘
+                            │  Tailscale / WireGuard
+                            ▼
+ ┌─ your flat ──────────────────────────────────┐
+ │ CT 111   posprint-web :8000   ◀── camera     │
+ │    │                              (RTSP)     │
+ │    │  X-API-Key                              │
+ │    ▼                                         │
+ │ CT 110   posprint :8080  ──▶  USB printer    │
+ └──────────────────────────────────────────────┘
 ```
+
+**The container IDs are examples.** This README uses **CT 110** for the printer
+and **CT 111** for the web front end throughout, so the commands can be pasted
+as they stand. Nothing depends on those numbers — substitute your own, or set
+them once per shell and paste anyway:
+
+```bash
+PRINTER=110      # the container running posprint
+WEB=111          # the container running posprint-web
+```
+
+Then `pct exec $WEB -- ...` wherever a command below says `pct exec 111 -- ...`.
 
 | Machine | Runs | Unit | Code | Config |
 | --- | --- | --- | --- | --- |
