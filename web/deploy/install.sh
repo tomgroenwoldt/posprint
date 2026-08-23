@@ -287,8 +287,10 @@ if systemctl is-active --quiet posprintweb; then
   echo "  Check it:"
   echo "      curl -s http://127.0.0.1:${PORT:-8000}/api/status"
   echo
-  echo "  It is bound to localhost. Put a tunnel in front to publish it -"
-  echo "  see 'Exposing it' in the README. Do not port-forward this directly."
+  echo "  It listens on 0.0.0.0 so a proxy on another machine can reach it,"
+  echo "  which is only safe while the container is not routable from the"
+  echo "  internet. Put a tunnel or reverse proxy in front to publish it -"
+  echo "  see 'Deployment' in the README. Do not port-forward this directly."
 else
   echo "  service FAILED to start. Logs:" >&2
   echo >&2

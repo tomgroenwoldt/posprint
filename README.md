@@ -17,12 +17,12 @@ curl -X POST http://10.0.0.50:8080/print/text \
 | --- | --- |
 | `posprint/`, `tests/`, `deploy/` | This service. Talks to the USB printer. **LAN only** — the API key it uses unlocks raw ESC/POS and the cash drawer, so it must never be exposed to the internet. |
 | `scripts/` | Standalone tools that talk to the API. `braille_print.py` decodes Unicode braille art back into the bitmap it encodes and prints it as graphics — the printer has no glyphs for `U+2800`–`U+28FF`. |
-| [`web/`](web/README.md) | `posprint-web`, an optional public page that lets strangers print a short message. It proxies to this service so that key stays server-side. |
+| [`web/`](web/README.md) | `posprint-web`, an optional public page that lets strangers print a short message. It proxies to this service so that key stays server-side, and ships a camera relay that fans one feed out from a VPS. |
 
 They deploy to separate containers with separate installers. You do not need
 `web/` to use the printer; skip it entirely if the LAN API is all you want.
 
-`pytest` from this directory runs both suites (152 tests).
+`pytest` from this directory runs both suites (302 tests).
 
 ---
 
@@ -444,7 +444,7 @@ python -m venv .venv
 PYTHONPATH=. .venv/bin/python -m pytest tests -q
 ```
 
-55 tests, no hardware required — the device is stood in for by an ordinary file,
+59 tests, no hardware required — the device is stood in for by an ordinary file,
 so the full spooler-to-device path runs for real. The suite asserts on exact
 byte sequences, because ESC/POS mistakes fail silently as a blank receipt.
 
