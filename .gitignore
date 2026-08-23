@@ -10,9 +10,16 @@ dist/
 # Runtime state and secrets - never commit these.
 *.db
 *.sqlite
+*.env
 posprint.env
 posprintweb.env
 blocklist.txt
+# The real wordlists. shadowlist.example.txt is tracked deliberately and is a
+# format example with no real terms in it; anything else matching this is the
+# live list, whose whole premise is that nobody has read it.
+shadowlist.txt
+shadowlist*.txt
+!shadowlist.example.txt
 
 # Local dev artefacts
 dev-disabled
