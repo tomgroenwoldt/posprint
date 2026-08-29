@@ -95,6 +95,31 @@ def test_page_only_substitutions_do_not_leak_onto_other_pages(selling):
     assert out == "<!--auction:url--><!--auction:note-->"
 
 
+def test_the_print_page_gets_a_link_to_the_auction(selling):
+    out = appmod._fill_auction(appmod.CTA_SLOT, "index")
+    assert 'href="/auction"' in out
+    assert "auction__bid" in out
+
+
+def test_no_auction_means_no_button(not_selling):
+    assert appmod._fill_auction(appmod.CTA_SLOT, "index") == ""
+
+
+def test_the_real_print_page_has_no_leftover_slots(selling):
+    """index.html carries both slots; neither may survive into the response."""
+    html = appmod._versioned_page("index.html")
+    assert appmod.NAV_SLOT not in html
+    assert appmod.CTA_SLOT not in html
+    assert 'href="/auction"' in html
+
+
+def test_the_print_page_is_clean_with_nothing_for_sale(not_selling):
+    html = appmod._versioned_page("index.html")
+    assert appmod.NAV_SLOT not in html
+    assert appmod.CTA_SLOT not in html
+    assert "/auction" not in html
+
+
 # -- the regression this feature actually shipped with ---------------------
 
 

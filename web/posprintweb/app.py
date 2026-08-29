@@ -758,6 +758,15 @@ async def admin_set_gallery(req: GalleryDecision) -> dict:
 
 
 NAV_SLOT = "<!--nav:auction-->"
+CTA_SLOT = "<!--auction:cta-->"
+
+# Sits under the live camera on the print page: someone watching a receipt come
+# out of the machine is the one visitor already interested in the object made
+# of receipts. Outside the camera <section> rather than inside it, because that
+# section is hidden whenever the feed is off - by mode, by quiet hours, or by
+# the killswitch - and the auction does not stop existing when the picture does.
+AUCTION_CTA = ('<p class="auction__cta"><a class="auction__bid" '
+               'href="/auction">The first frame is up for auction</a></p>')
 
 
 def _fill_auction(html: str, page: str) -> str:
@@ -775,9 +784,9 @@ def _fill_auction(html: str, page: str) -> str:
     only one.
     """
     if not cfg.auction_url:
-        # Leaves the slot empty on every page, and PAGES never builds
+        # Leaves both slots empty on every page, and PAGES never builds
         # "auction" at all, so /auction is a 404.
-        return html.replace(NAV_SLOT, "")
+        return html.replace(NAV_SLOT, "").replace(CTA_SLOT, "")
 
     current = page == "auction"
     html = html.replace(NAV_SLOT, (
@@ -787,6 +796,8 @@ def _fill_auction(html: str, page: str) -> str:
         aria=' aria-current="page"' if current else "",
         label=escape(cfg.auction_label or "Auction"),
     ))
+
+    html = html.replace(CTA_SLOT, AUCTION_CTA)
 
     if page != "auction":
         return html
