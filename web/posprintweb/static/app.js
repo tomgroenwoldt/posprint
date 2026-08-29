@@ -10,7 +10,7 @@ const el = {
   counterLine: $("counter-line"),
   camera: $("camera"), cameraImg: $("camera-img"), cameraNote: $("camera-note"),
   puzzle: $("puzzle"), puzzleImg: $("puzzle-img"), puzzleGrid: $("puzzle-grid"),
-  puzzleSkip: $("puzzle-skip"),
+  puzzleSkip: $("puzzle-skip"), artHint: $("art-hint"),
   cameraFrame: $("camera-frame"),
 };
 
@@ -492,6 +492,26 @@ function quotaText(remaining) {
     : "No prints left today.";
 }
 
+// Pictures do work, and nothing on the page said so. Somebody sent a receipt
+// asking for image support that had been there the whole time - the only
+// mention of braille anywhere in the UI was the error you get for mixing it
+// with text, which you only see after guessing right.
+//
+// The width comes from /api/status rather than the markup so it cannot
+// contradict BRAILLE_MAX_COLS after a config change, and the whole line stays
+// hidden when braille is switched off.
+function showArtHint() {
+  const on = brailleCfg && brailleCfg.enabled;
+  el.artHint.hidden = !on;
+  if (!on) return;
+  el.artHint.innerHTML =
+    'Sending a picture? Turn it into <a href="https://505e06b2.github.io/'
+    + 'Image-to-Braille/" target="_blank" rel="noopener noreferrer">braille '
+    + 'art</a> and it prints as a real image rather than text — set the '
+    + 'width to ' + brailleCfg.max_cols + ' characters or fewer, and send it '
+    + 'on its own.';
+}
+
 async function refreshStatus() {
   try {
     const r = await fetch("/api/status");
@@ -505,6 +525,7 @@ async function refreshStatus() {
       };
     }
     if (s.braille) brailleCfg = s.braille;
+    showArtHint();
     updateCamera(s.camera);
     el.title.textContent = s.title;
     document.title = s.title;

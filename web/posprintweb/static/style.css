@@ -281,6 +281,11 @@ textarea:focus, input:focus {
   border-color: transparent;
 }
 
+.hint {
+  margin: -.4rem 0 0; font-size: .85rem; color: var(--muted);
+}
+.hint a { color: var(--accent); }
+
 .counter {
   justify-self: end;
   font: .78rem var(--mono);
