@@ -23,7 +23,7 @@ def selling(monkeypatch):
     """A config with something for sale."""
     cfg = dataclasses.replace(
         appmod.cfg,
-        auction_url="https://www.ebay.de/itm/318796407274",
+        auction_url="https://www.ebay.com/itm/318796407274",
         auction_label="Auction",
         auction_note="Ends Sunday",
     )
@@ -136,7 +136,7 @@ def test_the_real_page_gets_a_real_href(selling):
     assert "<!--auction:url-->" not in html
     assert "<!--auction:note-->" not in html
     assert appmod.NAV_SLOT not in html
-    assert 'href="https://www.ebay.de/itm/318796407274"' in html
+    assert 'href="https://www.ebay.com/itm/318796407274"' in html
 
 
 def test_the_real_page_still_opens_the_listing_safely(selling):
@@ -149,8 +149,8 @@ def test_the_real_page_still_opens_the_listing_safely(selling):
 
 
 def test_env_url_accepts_what_belongs_in_an_href(monkeypatch):
-    monkeypatch.setenv("X_URL", "https://www.ebay.de/itm/1")
-    assert _env_url("X_URL") == "https://www.ebay.de/itm/1"
+    monkeypatch.setenv("X_URL", "https://www.ebay.com/itm/1")
+    assert _env_url("X_URL") == "https://www.ebay.com/itm/1"
     monkeypatch.setenv("X_URL", "/static/auction/frame.jpg")
     assert _env_url("X_URL") == "/static/auction/frame.jpg"
     monkeypatch.delenv("X_URL")
