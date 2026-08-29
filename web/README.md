@@ -451,6 +451,34 @@ Every one of these disables at `0`. See
 | `POSPRINTWEB_SHADOWLIST` | *(empty)* | Path to a wordlist. Accepts, charges, logs, never prints |
 | `POSPRINTWEB_SHADOW_DELAY_MS` | `900` | Makes a swallowed message take as long as a real print |
 
+### Auction
+
+An optional page at `/auction` describing something you are selling, with a nav
+entry next to Gallery. **Empty `AUCTION_URL` switches the whole thing off** —
+no nav link on any page, and `/auction` returns 404 — so this costs nothing on
+a deployment with nothing for sale.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `POSPRINTWEB_AUCTION_URL` | *(empty)* | The listing. Empty disables the feature entirely. Refused at startup unless `http://`, `https://` or a `/path` |
+| `POSPRINTWEB_AUCTION_LABEL` | `Auction` | The nav entry's text |
+| `POSPRINTWEB_AUCTION_NOTE` | *(empty)* | One line under the heading — "Ends Sunday 20:00", "Sold". Shown in amber |
+
+The item's photographs and copy live in `static/auction.html` and
+`static/auction/`, because they describe one specific object; only the link and
+the status line are configuration.
+
+**The listing itself cannot be embedded.** eBay serves item pages with
+`X-Frame-Options: SAMEORIGIN`, measured rather than assumed, so an iframe
+pointed at one renders nothing — and the widgets that used to allow it were
+retired years ago. The page therefore describes the object in its own words,
+shows photographs of it, and links out.
+
+If you replace the photographs, **strip the EXIF**. Phone pictures taken at
+home carry GPS: the originals behind the current set placed the flat to within
+a few metres. `ImageOps.exif_transpose` first so the rotation survives, then
+save without an `exif=` argument.
+
 ### Camera
 
 | Variable | Default | Notes |
@@ -1216,6 +1244,7 @@ public limits: `scripts/braille_print.py`, which talks to posprint directly.
 | `GET /api/challenge` | — | A proof-of-work challenge |
 | `GET /api/captcha` | — | A visual puzzle. 404 when `CAPTCHA=false` |
 | `GET /gallery` | — | Approved messages |
+| `GET /auction` | — | The item for sale. 404 when `AUCTION_URL` is unset |
 | `GET /api/gallery` | — | `?limit=&before=&day=` — keyset paged, `day` is `YYYY-MM-DD` or 422. Never includes `ip` |
 | `GET /api/camera.mjpg` | — | The feed. 404 when switched off |
 | `GET /api/camera.jpg` | — | One frame |

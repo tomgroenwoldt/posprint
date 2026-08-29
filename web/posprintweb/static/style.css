@@ -69,7 +69,13 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
 
 /* -- nav ---------------------------------------------------------------- */
 
-.nav { display: flex; align-items: center; gap: .4rem; margin: 0 0 1.2rem; }
+/* Wraps because the number of items is not fixed: an auction adds a fifth,
+   and five did not fit at 375px - the nav pushed <main> wider than the
+   viewport and took the whole page's horizontal scroll with it. */
+.nav {
+  display: flex; align-items: center; gap: .4rem; margin: 0 0 1.2rem;
+  flex-wrap: wrap; row-gap: .5rem;
+}
 .nav__link {
   font-size: .85rem; padding: .3rem .7rem; border-radius: 999px;
   text-decoration: none; color: var(--muted);
@@ -164,6 +170,68 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
   background: transparent; color: var(--muted); border: 1px solid var(--line);
 }
 .button--quiet:hover { color: var(--ink); }
+
+/* -- auction ------------------------------------------------------------ */
+/*
+   The page is mostly photographs of a physical object, so the job here is to
+   keep them from overwhelming a layout built for 48 columns of receipt. Every
+   image is capped and centred rather than bled to the edge; the lot details
+   reuse .paper, because the thing being sold is made of receipts and a second
+   way of drawing one would be a second thing to keep in step.
+*/
+
+.auction__note {
+  margin: .2rem 0 0;
+  font: 600 .9rem/1.5 var(--mono);
+  color: var(--warn);
+}
+
+.auction__hero { margin: 1.4rem 0 1.8rem; }
+.auction__hero img,
+.auction__grid img {
+  display: block; width: 100%; height: auto;
+  border: 1px solid var(--line); border-radius: .4rem;
+  background: var(--paper);
+}
+.auction__hero img { max-width: 32rem; margin: 0 auto; }
+
+/* A grid with min-width: 0, for the same reason .preview and .gallery__item
+   are: .paper is width: fit-content, and inside a plain block the 48-column
+   <pre> sets a min-content floor that the wrapper inherits. Measured at 375px
+   the document scrolled to 402 and hiding this one element brought it back, so
+   the slip was dragging the whole page sideways. */
+.auction__lot {
+  display: grid; justify-items: start; min-width: 0;
+  margin: 0 0 1.6rem;
+}
+
+.auction__cta { margin: 0 0 2.4rem; }
+.auction__bid {
+  display: inline-block;
+  padding: .7rem 1.5rem;
+  font: 600 15px system-ui, sans-serif;
+  color: #fff; background: var(--accent);
+  border-radius: .5rem; text-decoration: none;
+}
+.auction__bid:hover { filter: brightness(1.08); }
+.auction__bid:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+.auction__subhead {
+  font-size: .95rem; margin: 0 0 .8rem;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+}
+
+/* auto-fit rather than a fixed count: three portrait photographs side by side
+   are unreadable on a laptop and impossible on a phone. */
+.auction__grid {
+  display: grid; gap: 1.4rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  margin: 0 0 2rem;
+}
+.auction__grid figure { margin: 0; min-width: 0; }
+.auction__grid figcaption {
+  margin: .5rem 0 0; font-size: .85rem; color: var(--muted);
+}
 
 /* -- live camera -------------------------------------------------------- */
 

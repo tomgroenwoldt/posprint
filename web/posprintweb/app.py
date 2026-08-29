@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import time
+from html import escape
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -756,6 +757,46 @@ async def admin_set_gallery(req: GalleryDecision) -> dict:
     return {"ok": True, "id": req.id, "gallery": value, "counts": store.review_counts()}
 
 
+NAV_SLOT = "<!--nav:auction-->"
+
+
+def _fill_auction(html: str, page: str) -> str:
+    """Put the auction into the nav and the page, or take it out entirely.
+
+    Done here rather than from /api/status the way the title and blurb are.
+    A nav item that appears a moment after the rest of the page has been drawn
+    is a link that moves under the cursor as someone reaches for Gallery, and
+    with no auction configured the markup should be absent rather than hidden
+    - there is nothing to hide.
+
+    Escaped on the way in because these come from the environment and land in
+    an href. config._env_url has already refused anything that is not http,
+    https or a /path, so this is the second of the two guards rather than the
+    only one.
+    """
+    if not cfg.auction_url:
+        # Leaves the slot empty on every page, and PAGES never builds
+        # "auction" at all, so /auction is a 404.
+        return html.replace(NAV_SLOT, "")
+
+    current = page == "auction"
+    html = html.replace(NAV_SLOT, (
+        '<a href="/auction" class="nav__link{cls}"{aria}>{label}</a>'
+    ).format(
+        cls=" nav__link--current" if current else "",
+        aria=' aria-current="page"' if current else "",
+        label=escape(cfg.auction_label or "Auction"),
+    ))
+
+    if page != "auction":
+        return html
+    note = (f'<p class="auction__note">{escape(cfg.auction_note)}</p>'
+            if cfg.auction_note else "")
+    return (html
+            .replace("<!--auction:url-->", escape(cfg.auction_url, quote=True))
+            .replace("<!--auction:note-->", note))
+
+
 def _versioned_page(name: str) -> str:
     """One HTML page with a build stamp on each asset URL.
 
@@ -771,6 +812,11 @@ def _versioned_page(name: str) -> str:
     future deploys land instantly instead of after a revalidation.
     """
     html = (STATIC / name).read_text(encoding="utf-8")
+    # removesuffix, because this is called with "auction.html" while the pages
+    # are keyed on "auction". Comparing the wrong one of those left the bid
+    # button's href set to the literal placeholder text - a page that rendered
+    # perfectly and did not do the single thing it exists to do.
+    html = _fill_auction(html, name.removesuffix(".html"))
     stamp = max(int(p.stat().st_mtime) for p in STATIC.glob("*.*"))
     # Every reference, rather than a hand-kept list of filenames: receipt.js
     # was missing from one, and that is the file where a stale copy does the
@@ -785,7 +831,12 @@ def _versioned_page(name: str) -> str:
 
 # Built once at import: the files cannot change under a running service, since
 # install.sh restarts it.
-PAGES = {name: _versioned_page(f"{name}.html") for name in ("index", "gallery", "admin")}
+# "auction" is only built when there is one, which is what makes /auction a
+# 404 rather than an empty page on every deployment that is not selling
+# anything.
+_PAGE_NAMES = ("index", "gallery", "admin") + (
+    ("auction",) if cfg.auction_url else ())
+PAGES = {name: _versioned_page(f"{name}.html") for name in _PAGE_NAMES}
 
 # no-store on every page: they embed nothing per-visitor, but a stale copy after
 # a limit change is confusing, and it is what makes the asset stamping work.
@@ -800,6 +851,19 @@ async def index() -> HTMLResponse:
 @app.get("/gallery", include_in_schema=False)
 async def gallery_page() -> HTMLResponse:
     return HTMLResponse(PAGES["gallery"], headers=_PAGE_HEADERS)
+
+
+@app.get("/auction", include_in_schema=False)
+async def auction_page() -> HTMLResponse:
+    """The framed collage, and a link to the listing.
+
+    404 when POSPRINTWEB_AUCTION_URL is unset, so this costs nothing on a
+    deployment that has nothing for sale.
+    """
+    page = PAGES.get("auction")
+    if page is None:
+        raise HTTPException(status_code=404, detail="not found")
+    return HTMLResponse(page, headers=_PAGE_HEADERS)
 
 
 @app.get("/admin", include_in_schema=False)

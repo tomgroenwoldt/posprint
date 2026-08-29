@@ -52,6 +52,25 @@ def _env_choice(name: str, default: str, allowed: tuple[str, ...]) -> str:
     return raw
 
 
+def _env_url(name: str) -> str:
+    """A URL that will be written into an href or a src, or "".
+
+    Refused rather than escaped if the scheme is not one of http, https or a
+    site-relative path. Escaping makes `javascript:` inert as *text*; it does
+    not stop a browser running it when it lands in an attribute. These values
+    come from the operator rather than a visitor, so this is a guard against a
+    typo becoming something worse, not a security boundary - but it costs one
+    comparison and fails at startup instead of in someone's browser.
+    """
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("/") or raw.lower().startswith(("http://", "https://")):
+        return raw
+    raise SystemExit(
+        f"{name} must be http://, https:// or a /path, got {raw!r}")
+
+
 def _env_list(name: str) -> list[str]:
     raw = os.environ.get(name, "")
     return [p.strip() for p in raw.split(",") if p.strip()]
@@ -69,6 +88,23 @@ class Config:
     port: int = 8000
     site_title: str = "Print to my receipt printer"
     site_blurb: str = "This prints on a real thermal printer in my flat."
+
+    # -- the auction ------------------------------------------------------
+    #
+    # A listing cannot be put in an iframe. eBay serves item pages with
+    # X-Frame-Options: SAMEORIGIN, so a frame pointed at one renders nothing
+    # at all - measured, not assumed - and the widgets that used to allow it
+    # were retired years ago. What goes on the page is therefore a
+    # description of the item and a link out. The copy and the photographs
+    # live in auction.html because they are about one specific object; only
+    # the link and a status line change often enough to be configuration.
+    #
+    # An empty auction_url switches the whole feature off, nav link included,
+    # and /auction starts returning 404. That is what makes this safe to ship
+    # to anyone who is not selling anything.
+    auction_url: str = ""
+    auction_label: str = "Auction"
+    auction_note: str = ""
 
     # Columns of the target paper. Only used to draw the preview and to reject
     # obviously oversized input; the real formatting happens upstream.
@@ -308,6 +344,10 @@ class Config:
             port=_env_int("POSPRINTWEB_PORT", 8000),
             site_title=os.environ.get("POSPRINTWEB_TITLE", cls.site_title),
             site_blurb=os.environ.get("POSPRINTWEB_BLURB", cls.site_blurb),
+            auction_url=_env_url("POSPRINTWEB_AUCTION_URL"),
+            auction_label=os.environ.get(
+                "POSPRINTWEB_AUCTION_LABEL", cls.auction_label).strip(),
+            auction_note=os.environ.get("POSPRINTWEB_AUCTION_NOTE", "").strip(),
             columns=_env_int("POSPRINTWEB_COLUMNS", 48),
             codepage=_env_codepage("POSPRINTWEB_CODEPAGE", "cp858"),
             camera_url=os.environ.get("POSPRINTWEB_CAMERA_URL", "").strip(),
