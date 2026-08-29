@@ -195,16 +195,6 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
 }
 .auction__hero img { max-width: 32rem; margin: 0 auto; }
 
-/* A grid with min-width: 0, for the same reason .preview and .gallery__item
-   are: .paper is width: fit-content, and inside a plain block the 48-column
-   <pre> sets a min-content floor that the wrapper inherits. Measured at 375px
-   the document scrolled to 402 and hiding this one element brought it back, so
-   the slip was dragging the whole page sideways. */
-.auction__lot {
-  display: grid; justify-items: start; min-width: 0;
-  margin: 0 0 1.6rem;
-}
-
 .auction__cta { margin: 0 0 2.4rem; }
 .auction__bid {
   display: inline-block;
