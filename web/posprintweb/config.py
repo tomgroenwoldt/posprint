@@ -346,8 +346,12 @@ class Config:
             port=_env_int("POSPRINTWEB_PORT", 8000),
             site_title=os.environ.get("POSPRINTWEB_TITLE", cls.site_title),
             site_blurb=os.environ.get("POSPRINTWEB_BLURB", cls.site_blurb),
-            auctions_path=os.environ.get(
-                "POSPRINTWEB_AUCTIONS", str(_HERE / "auctions.json")).strip(),
+            # `or` rather than a get() default: an env file that carries
+            # POSPRINTWEB_AUCTIONS= with nothing after it sets the key to "",
+            # which get() happily returns. That became Path(""), which is ".",
+            # which exists, and the service died reading a directory.
+            auctions_path=(os.environ.get("POSPRINTWEB_AUCTIONS", "").strip()
+                           or str(_HERE / "auctions.json")),
             auction_label=os.environ.get(
                 "POSPRINTWEB_AUCTION_LABEL", cls.auction_label).strip(),
             columns=_env_int("POSPRINTWEB_COLUMNS", 48),

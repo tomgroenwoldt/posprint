@@ -116,6 +116,11 @@ def load(path: str | Path) -> tuple[Listing, ...]:
     p = Path(path)
     if not p.exists():
         return ()
+    if not p.is_file():
+        # A directory, most often because the path was empty and became ".".
+        # Reading it raises a bare PermissionError that names neither the
+        # setting nor the mistake.
+        raise BadManifest(f"{p}: not a file")
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:

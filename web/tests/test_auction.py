@@ -68,6 +68,27 @@ def test_the_shipped_manifest_is_valid():
     assert all(x.title and x.url for x in loaded)
 
 
+def test_an_empty_env_var_falls_back_to_the_default_path(monkeypatch):
+    """An env file line reading `POSPRINTWEB_AUCTIONS=` with nothing after it
+    sets the key to "", which os.environ.get returns in preference to its
+    default. That became Path(""), which is ".", which exists - and the
+    service died reading a directory. install.sh writes exactly that shape of
+    line for the other optional paths, so it was one paste away."""
+    from posprintweb.config import Config
+    monkeypatch.setenv("POSPRINTWEB_AUCTIONS", "")
+    assert Config.from_env().auctions_path.endswith("auctions.json")
+    monkeypatch.setenv("POSPRINTWEB_AUCTIONS", "   ")
+    assert Config.from_env().auctions_path.endswith("auctions.json")
+
+
+def test_a_path_that_is_not_a_file_is_refused_by_name(tmp_path):
+    """Reading a directory raises a bare PermissionError naming neither the
+    setting nor the mistake."""
+    with pytest.raises(BadManifest) as exc:
+        listings.load(tmp_path)
+    assert "not a file" in str(exc.value)
+
+
 def test_either_shape_of_file_is_accepted(tmp_path):
     one = [{"title": "x", "url": "https://e.com/1"}]
     assert len(listings.load(write(tmp_path, one))) == 1
