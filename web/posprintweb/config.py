@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import codecs
 import os
+from pathlib import Path
 from dataclasses import dataclass, field
+
+_HERE = Path(__file__).parent
 
 
 def _env_int(name: str, default: int) -> int:
@@ -95,16 +98,15 @@ class Config:
     # X-Frame-Options: SAMEORIGIN, so a frame pointed at one renders nothing
     # at all - measured, not assumed - and the widgets that used to allow it
     # were retired years ago. What goes on the page is therefore a
-    # description of the item and a link out. The copy and the photographs
-    # live in auction.html because they are about one specific object; only
-    # the link and a status line change often enough to be configuration.
+    # description of each item and a link out.
     #
-    # An empty auction_url switches the whole feature off, nav link included,
-    # and /auction starts returning 404. That is what makes this safe to ship
-    # to anyone who is not selling anything.
-    auction_url: str = ""
+    # What is for sale lives in a JSON manifest next to the photographs -
+    # see listings.py for why there rather than here. An absent manifest, or
+    # one with no listings in it, switches the whole feature off: no nav entry
+    # on any page, no button under the camera, and /auction returns 404. That
+    # is what makes this safe to ship to anyone who is not selling anything.
+    auctions_path: str = ""
     auction_label: str = "Auction"
-    auction_note: str = ""
 
     # Columns of the target paper. Only used to draw the preview and to reject
     # obviously oversized input; the real formatting happens upstream.
@@ -344,10 +346,10 @@ class Config:
             port=_env_int("POSPRINTWEB_PORT", 8000),
             site_title=os.environ.get("POSPRINTWEB_TITLE", cls.site_title),
             site_blurb=os.environ.get("POSPRINTWEB_BLURB", cls.site_blurb),
-            auction_url=_env_url("POSPRINTWEB_AUCTION_URL"),
+            auctions_path=os.environ.get(
+                "POSPRINTWEB_AUCTIONS", str(_HERE / "auctions.json")).strip(),
             auction_label=os.environ.get(
                 "POSPRINTWEB_AUCTION_LABEL", cls.auction_label).strip(),
-            auction_note=os.environ.get("POSPRINTWEB_AUCTION_NOTE", "").strip(),
             columns=_env_int("POSPRINTWEB_COLUMNS", 48),
             codepage=_env_codepage("POSPRINTWEB_CODEPAGE", "cp858"),
             camera_url=os.environ.get("POSPRINTWEB_CAMERA_URL", "").strip(),

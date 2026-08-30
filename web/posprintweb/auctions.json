@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "What is up for auction. Read once at startup by listings.py; see the",
+    "Auction section of web/README.md.",
+    "",
+    "Each listing: title, url, and optionally blurb, note, sold, photos.",
+    "The first photo is the hero, shown large; the rest go in a grid under it.",
+    "Every photo needs alt text - the page is almost entirely images.",
+    "",
+    "Photos live in static/auction/ and must be in the repository, since that",
+    "is how install.sh gets them onto the container. STRIP THE EXIF: phone",
+    "pictures taken at home carry GPS."
+  ],
+  "listings": [
+    {
+      "title": "The first frame",
+      "url": "https://www.ebay.com/itm/318796407274",
+      "note": "Ends Tuesday 18:07 Berlin time",
+      "blurb": "Around a hundred receipts sent to this printer by strangers, mounted behind glass. No theme and no editing - whatever turned up.",
+      "sold": false,
+      "photos": [
+        {
+          "src": "/static/auction/frame.jpg",
+          "alt": "A large dark wood picture frame filled with about a hundred thermal receipts, each headed INCOMING with a timestamp, arranged in columns."
+        },
+        {
+          "src": "/static/auction/detail-1.jpg",
+          "alt": "Detail of the top-left of the frame: individual receipts showing a message about brighter days, an ASCII map of Australia, a drawing of a girl with a mug, and a Bobby Tables SQL-injection joke.",
+          "caption": "Top left. The one about brighter days came from someone who signed off only as \"someone on the internet\"."
+        },
+        {
+          "src": "/static/auction/detail-2.jpg",
+          "alt": "Detail of the lower right of the frame, showing dithered pixel-art receipts including a rabbit, a footballer and several ASCII drawings.",
+          "caption": "Lower right. Braille art gets decoded back into a bitmap and printed as a picture, which is why these are dots and not characters."
+        },
+        {
+          "src": "/static/auction/scale.jpg",
+          "alt": "The frame held up at an angle in a living room, with a second smaller framed collage visible on the wall behind it.",
+          "caption": "For scale. The smaller frame behind it is not included."
+        }
+      ]
+    }
+  ]
+}

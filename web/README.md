@@ -453,31 +453,67 @@ Every one of these disables at `0`. See
 
 ### Auction
 
-An optional page at `/auction` describing something you are selling, with a nav
-entry next to Gallery. **Empty `AUCTION_URL` switches the whole thing off** —
-no nav link on any page, and `/auction` returns 404 — so this costs nothing on
-a deployment with nothing for sale.
+An optional page at `/auction` listing things you are selling, with a nav entry
+next to Gallery and a button under the live camera on the print page. **With no
+manifest, or a manifest with no listings in it, the whole feature vanishes** —
+no nav entry anywhere, no button, and `/auction` returns 404.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `POSPRINTWEB_AUCTION_URL` | *(empty)* | The listing. Empty disables the feature entirely. Refused at startup unless `http://`, `https://` or a `/path` |
+| `POSPRINTWEB_AUCTIONS` | `posprintweb/auctions.json` | Path to the manifest. A missing file means nothing is for sale |
 | `POSPRINTWEB_AUCTION_LABEL` | `Auction` | The nav entry's text |
-| `POSPRINTWEB_AUCTION_NOTE` | *(empty)* | One line under the heading — "Ends Sunday 20:00", "Sold". Shown in amber |
 
-The item's photographs and copy live in `static/auction.html` and
-`static/auction/`, because they describe one specific object; only the link and
-the status line are configuration.
+What is for sale lives in **`posprintweb/auctions.json`**, next to the
+photographs in `static/auction/`:
 
-**The listing itself cannot be embedded.** eBay serves item pages with
+```json
+{
+  "listings": [
+    {
+      "title": "The first frame",
+      "url": "https://www.ebay.com/itm/318796407274",
+      "note": "Ends Tuesday 18:07 Berlin time",
+      "blurb": "Around a hundred receipts sent by strangers.",
+      "sold": false,
+      "photos": [
+        {"src": "/static/auction/frame.jpg", "alt": "The whole frame"},
+        {"src": "/static/auction/detail-1.jpg", "alt": "A detail",
+         "caption": "Top left."}
+      ]
+    }
+  ]
+}
+```
+
+Only `title` and `url` are required. **The first photo is the hero**, shown
+large; the rest go in a grid beneath it. Every photo needs `alt` — the page is
+almost entirely images, and without it a screen reader gets a title, a price
+and silence.
+
+`"sold": true` keeps the lot on the page with its pictures, drops its button,
+and sorts it last. The page is a record of what came off this printer as much
+as it is a shop, and deleting sold lots would make it a worse record every time
+it worked.
+
+**A broken manifest stops the service at startup**, naming the listing and the
+field. That is deliberate: this feature already shipped once with a page that
+rendered perfectly and a button that could not be clicked, and a service that
+refuses to start and says why is easier to fix than a page nobody can buy from.
+
+To add a listing: put its photographs in `static/auction/`, add an entry, and
+deploy. Both steps need a deploy either way, since `install.sh` is how the
+static directory reaches the container.
+
+**The listings themselves cannot be embedded.** eBay serves item pages with
 `X-Frame-Options: SAMEORIGIN`, measured rather than assumed, so an iframe
 pointed at one renders nothing — and the widgets that used to allow it were
-retired years ago. The page therefore describes the object in its own words,
-shows photographs of it, and links out.
+retired years ago. The page therefore describes each object, shows photographs
+of it, and links out.
 
-If you replace the photographs, **strip the EXIF**. Phone pictures taken at
-home carry GPS: the originals behind the current set placed the flat to within
-a few metres. `ImageOps.exif_transpose` first so the rotation survives, then
-save without an `exif=` argument.
+**Strip the EXIF from your photographs.** Phone pictures taken at home carry
+GPS: the originals behind the current set placed the flat to within a few
+metres. `ImageOps.exif_transpose` first so the rotation survives, then save
+without an `exif=` argument.
 
 ### Camera
 

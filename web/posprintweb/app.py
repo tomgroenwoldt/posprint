@@ -34,7 +34,7 @@ try:
 except ImportError:  # pragma: no cover - Python < 3.9
     ZoneInfo = None  # type: ignore[assignment]
 
-from . import braille, shadow
+from . import braille, listings, shadow
 from .camera import Camera
 from .config import Config
 from .filters import (
@@ -759,14 +759,74 @@ async def admin_set_gallery(req: GalleryDecision) -> dict:
 
 NAV_SLOT = "<!--nav:auction-->"
 CTA_SLOT = "<!--auction:cta-->"
+LOTS_SLOT = "<!--auction:lots-->"
 
-# Sits under the live camera on the print page: someone watching a receipt come
-# out of the machine is the one visitor already interested in the object made
-# of receipts. Outside the camera <section> rather than inside it, because that
-# section is hidden whenever the feed is off - by mode, by quiet hours, or by
-# the killswitch - and the auction does not stop existing when the picture does.
-AUCTION_CTA = ('<p class="auction__cta"><a class="auction__bid" '
-               'href="/auction">The first frame is up for auction</a></p>')
+# Read once at startup, like everything else here. A broken manifest stops the
+# service with a message naming the listing and the field, rather than serving
+# a page nobody can buy from.
+try:
+    LISTINGS = listings.load(cfg.auctions_path)
+except listings.BadManifest as exc:
+    raise SystemExit(f"POSPRINTWEB_AUCTIONS: {exc}") from exc
+
+
+def _photo(photo: listings.Photo, *, hero: bool) -> str:
+    figure = "auction__hero" if hero else ""
+    caption = (f"<figcaption>{escape(photo.caption)}</figcaption>"
+               if photo.caption else "")
+    return (f'<figure class="{figure}">'
+            f'<img src="{escape(photo.src, quote=True)}" '
+            f'alt="{escape(photo.alt, quote=True)}" '
+            f'loading="{"eager" if hero else "lazy"}" decoding="async">'
+            f'{caption}</figure>')
+
+
+def _lot(item: listings.Listing) -> str:
+    """One listing, as a section.
+
+    A sold lot keeps its photographs and loses its button. The page is a record
+    of what came off this printer as much as a shop, and deleting the sold ones
+    would make it a worse record every time it worked.
+    """
+    parts = [f'<section class="lot">',
+             f'<h2 class="lot__title">{escape(item.title)}</h2>']
+    if item.sold:
+        parts.append('<p class="auction__note lot__sold">Sold</p>')
+    elif item.note:
+        parts.append(f'<p class="auction__note">{escape(item.note)}</p>')
+    if item.blurb:
+        parts.append(f'<p class="lot__blurb">{escape(item.blurb)}</p>')
+    if item.hero:
+        parts.append(_photo(item.hero, hero=True))
+    if not item.sold:
+        parts.append(
+            f'<p class="auction__cta"><a class="auction__bid" '
+            f'href="{escape(item.url, quote=True)}" target="_blank" '
+            f'rel="noopener noreferrer">View the listing on eBay</a></p>')
+    if item.rest:
+        parts.append('<div class="auction__grid">'
+                     + "".join(_photo(x, hero=False) for x in item.rest)
+                     + "</div>")
+    parts.append("</section>")
+    return "".join(parts)
+
+
+def _auction_cta() -> str:
+    """The button under the camera on the print page.
+
+    Named when there is one thing to name, counted when there is not - "The
+    first frame is up for auction" stops being true the moment a second lot
+    exists, and this feature has already shipped one claim that was not.
+    """
+    biddable = listings.live(LISTINGS)
+    if len(biddable) == 1:
+        text = f"{biddable[0].title} is up for auction"
+    elif biddable:
+        text = f"{len(biddable)} things are up for auction"
+    else:
+        text = "See what was up for auction"
+    return ('<p class="auction__cta"><a class="auction__bid" href="/auction">'
+            f'{escape(text)}</a></p>')
 
 
 def _fill_auction(html: str, page: str) -> str:
@@ -775,18 +835,15 @@ def _fill_auction(html: str, page: str) -> str:
     Done here rather than from /api/status the way the title and blurb are.
     A nav item that appears a moment after the rest of the page has been drawn
     is a link that moves under the cursor as someone reaches for Gallery, and
-    with no auction configured the markup should be absent rather than hidden
-    - there is nothing to hide.
-
-    Escaped on the way in because these come from the environment and land in
-    an href. config._env_url has already refused anything that is not http,
-    https or a /path, so this is the second of the two guards rather than the
-    only one.
+    with nothing for sale the markup should be absent rather than hidden -
+    there is nothing to hide.
     """
-    if not cfg.auction_url:
-        # Leaves both slots empty on every page, and PAGES never builds
-        # "auction" at all, so /auction is a 404.
-        return html.replace(NAV_SLOT, "").replace(CTA_SLOT, "")
+    if not LISTINGS:
+        # Leaves every slot empty, and PAGES never builds "auction" at all,
+        # so /auction is a 404.
+        for slot in (NAV_SLOT, CTA_SLOT, LOTS_SLOT):
+            html = html.replace(slot, "")
+        return html
 
     current = page == "auction"
     html = html.replace(NAV_SLOT, (
@@ -796,16 +853,13 @@ def _fill_auction(html: str, page: str) -> str:
         aria=' aria-current="page"' if current else "",
         label=escape(cfg.auction_label or "Auction"),
     ))
-
-    html = html.replace(CTA_SLOT, AUCTION_CTA)
+    html = html.replace(CTA_SLOT, _auction_cta())
 
     if page != "auction":
         return html
-    note = (f'<p class="auction__note">{escape(cfg.auction_note)}</p>'
-            if cfg.auction_note else "")
-    return (html
-            .replace("<!--auction:url-->", escape(cfg.auction_url, quote=True))
-            .replace("<!--auction:note-->", note))
+    # Sold lots sort last: what someone can still buy comes first.
+    ordered = sorted(LISTINGS, key=lambda x: x.sold)
+    return html.replace(LOTS_SLOT, "".join(_lot(x) for x in ordered))
 
 
 def _versioned_page(name: str) -> str:
@@ -846,7 +900,7 @@ def _versioned_page(name: str) -> str:
 # 404 rather than an empty page on every deployment that is not selling
 # anything.
 _PAGE_NAMES = ("index", "gallery", "admin") + (
-    ("auction",) if cfg.auction_url else ())
+    ("auction",) if LISTINGS else ())
 PAGES = {name: _versioned_page(f"{name}.html") for name in _PAGE_NAMES}
 
 # no-store on every page: they embed nothing per-visitor, but a stale copy after

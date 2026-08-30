@@ -186,6 +186,23 @@ h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
   color: var(--warn);
 }
 
+/* One listing. Separated by a rule rather than a card, because the page is a
+   short list of large photographs and boxing each one adds furniture without
+   adding structure. */
+.lot { padding: 0 0 2.4rem; }
+.lot + .lot { border-top: 1px solid var(--line); padding-top: 2rem; }
+/* Overrides the site's h2, which is a muted uppercase section label - right
+   for "What comes out", wrong for the name of a thing being sold. Each lot
+   title heads its own block and is the first thing to read in it. */
+.lot__title {
+  font-size: 1.35rem; margin: 0 0 .3rem;
+  text-transform: none; letter-spacing: normal; color: var(--ink);
+}
+.lot__blurb { margin: .4rem 0 0; color: var(--muted); max-width: 34rem; }
+/* Sold lots keep their photographs and lose their button, so the state has to
+   be legible on its own rather than inferred from an absence. */
+.lot__sold { color: var(--muted); }
+
 .auction__hero { margin: 1.4rem 0 1.8rem; }
 .auction__hero img,
 .auction__grid img {
